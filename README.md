@@ -1,5 +1,7 @@
 # Bloodlines Android
 
+[![Android CI](https://github.com/Stlucifer15t/Bloodline--Android-/actions/workflows/android.yml/badge.svg)](https://github.com/Stlucifer15t/Bloodline--Android-/actions/workflows/android.yml)
+
 A standalone Android launcher for **Vampire: The Masquerade – Bloodlines** (PC, 2004).
 
 This repository is the first milestone of that project: a real, buildable Android
@@ -15,6 +17,11 @@ Windows compatibility runtime will be plugged into.
 ---
 
 ## Current status — Milestone 1 (foundation)
+
+**Build: green.** Every push and pull request runs unit tests, Android lint and a
+debug APK build on GitHub Actions; the APK is published as a downloadable
+artifact. Verified configuration: Temurin JDK 17 + Gradle 8.13 + AGP 8.13 on
+`ubuntu-latest`, producing a ~3.1 MB debug APK (`app-debug.apk`, API 26+).
 
 | Area | State |
 | --- | --- |
@@ -108,15 +115,22 @@ or removed without touching the others or the UI, which only reads the registry.
 You do **not** need to build anything locally to get an APK. Every push and pull
 request is built by GitHub Actions — see below.
 
+> **Wrapper note.** If `./gradlew` ever fails while downloading Gradle, check
+> `gradle/wrapper/gradle-wrapper.properties`. Gradle omits the trailing `.0` in
+> distribution filenames: version 8.13 is published as `gradle-8.13-bin.zip`,
+> not `gradle-8.13.0-bin.zip`.
+
 ---
 
 ## Getting the APK from GitHub Actions
 
 1. Open the **Actions** tab of the repository.
 2. Click the latest **Android CI** run (green = passed).
-3. Scroll to **Artifacts** and download **`bloodlines-debug-apk`**.
-4. Unzip and install the APK on your device (enable *Install unknown apps* for
-   your browser/files app when prompted).
+3. Scroll to **Artifacts** and download **`bloodlines-debug-apk`**
+   (the `bloodlines-reports` artifact next to it holds the test and lint
+   reports, plus the full Gradle logs).
+4. Unzip and install `app-debug.apk` on your device (enable *Install unknown
+   apps* for your browser/files app when prompted).
 
 The workflow runs on every push to `main`, on every pull request targeting
 `main`, and on demand via **Run workflow**.

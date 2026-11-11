@@ -1,0 +1,14 @@
+# Keep the Gradle wrapper scripts with Unix line endings on every platform:
+# a CRLF gradlew script fails to run on Linux CI runners.
+gradlew text eol=lf
+
+# Treat shell scripts and Gradle build scripts as text.
+*.sh text eol=lf
+*.kts text
+*.properties text
+
+# Binaries that must never be modified or diffed.
+*.jar binary
+*.png binary
+*.jpg binary
+*.apk binary
