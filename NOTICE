@@ -1,0 +1,72 @@
+Bloodlines Android
+Copyright (C) 2026 Bloodlines Android contributors
+
+This product is licensed under the GNU General Public License v3.0 (see LICENSE).
+
+This notice lists third-party software that is used by this project today, or
+that is planned to be embedded by the compatibility runtime. It will be updated
+in the milestone where each component is actually integrated.
+
+--------------------------------------------------------------------------------
+Bundled today
+--------------------------------------------------------------------------------
+
+AndroidX (androidx.appcompat, androidx.core, and their transitive dependencies)
+  Copyright (C) The Android Open Source Project
+  Licensed under the Apache License, Version 2.0
+  https://developer.android.com/jetpack/androidx
+
+--------------------------------------------------------------------------------
+Planned - not yet integrated
+--------------------------------------------------------------------------------
+
+Wine
+  Copyright (C) 1993-2026 The Wine Project
+  Licensed under the GNU Lesser General Public License, version 2.1 or later
+  https://www.winehq.org
+
+Box86 / Box64
+  Copyright (C) ptitSeb
+  Licensed under the MIT License
+  https://github.com/ptitSeb/box86 | https://github.com/ptitSeb/box64
+
+Mesa 3D (VirGL, Panfrost, Zink)
+  Copyright (C) Mesa contributors
+  Licensed under the MIT License (and other MIT/Expat-compatible licences)
+  https://www.mesa3d.org
+
+WineD3D (part of Wine)
+  Licensed under the GNU Lesser General Public License, version 2.1 or later
+  https://www.winehq.org
+
+DXVK / VKD3D-Proton
+  DXVK: Copyright (C) 2019 Philip Rebohle - zlib License
+  VKD3D: Copyright (C) The vkd3d project - GNU LGPL v2.1
+  https://github.com/doitsujin/dxvk | https://gitlab.winehq.org/wine/vkd3d
+
+PRoot
+  Copyright (C) PRoot contributors
+  Licensed under the GNU General Public License, version 2.0 or later
+  https://proot-me.github.io
+
+glibc / Linux userland (e.g. Ubuntu base rootfs)
+  Various licences, predominantly GNU LGPL v2.1 and GPL v2
+  https://www.gnu.org/software/libc/
+
+--------------------------------------------------------------------------------
+Upstream reference
+--------------------------------------------------------------------------------
+
+Winlator (brunodev85) - LGPL-2.1 - is used only as an architectural reference and
+compatibility data point for the stack above. No Winlator source code is
+included in this repository, and this application does not require Winlator to be
+installed.
+
+--------------------------------------------------------------------------------
+Game data
+--------------------------------------------------------------------------------
+
+Vampire: The Masquerade - Bloodlines is a trademark of Paradox Interactive AB.
+Vampire: The Masquerade is a trademark of White Wolf Publishing.
+No game files, assets or executables are distributed with this project. Users
+must supply their own legally obtained copy.

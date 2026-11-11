@@ -1,0 +1,33 @@
+[versions]
+# Android Gradle Plugin 8.13 requires Gradle >= 8.13 and JDK 17.
+# See https://developer.android.com/build/releases/gradle-plugin
+agp = "8.13.0"
+gradle = "8.13.0"
+kotlin = "2.2.20"
+
+# Android platform levels.
+# minSdk 26 == Android 8.0 Oreo, the same floor used by Winlator, which is the
+# lowest version that comfortably supports the ARM64 userland a Wine/Box86
+# runtime needs.
+minSdk = "26"
+targetSdk = "36"
+compileSdk = "36"
+
+# Application version.
+versionCode = "1"
+versionName = "0.1.0"
+
+# Libraries. Kept deliberately small: AppCompat for a custom (non-Material)
+# dark theme, androidx.core for tinting/compat helpers, JUnit for unit tests.
+appcompat = "1.7.0"
+coreKtx = "1.15.0"
+junit = "4.13.2"
+
+[libraries]
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

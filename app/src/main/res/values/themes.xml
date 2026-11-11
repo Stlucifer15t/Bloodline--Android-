@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        A hand built dark theme. The parent is only used for the AppCompat
+        widget infrastructure; every visible attribute is overridden here so
+        the launcher does not inherit stock Material styling.
+    -->
+    <style name="Theme.Bloodlines" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/blood_600</item>
+        <item name="colorPrimaryDark">@color/blood_700</item>
+        <item name="colorAccent">@color/blood_500</item>
+        <item name="colorControlNormal">@color/ash</item>
+        <item name="colorControlActivated">@color/blood_400</item>
+        <item name="colorControlHighlight">#33B3121C</item>
+
+        <item name="android:windowBackground">@drawable/bg_launcher</item>
+        <item name="android:colorBackground">@color/ink_900</item>
+        <item name="android:statusBarColor">@color/ink_900</item>
+        <item name="android:navigationBarColor">@color/ink_900</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="23">false</item>
+
+        <item name="android:textColorPrimary">@color/bone</item>
+        <item name="android:textColorSecondary">@color/bone_dim</item>
+        <item name="android:textColorTertiary">@color/ash</item>
+        <item name="android:textColorHint">@color/ash_dim</item>
+    </style>
+
+    <!-- Branding -->
+    <style name="Text.Brand">
+        <item name="android:fontFamily">serif</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">35sp</item>
+        <item name="android:textColor">@color/bone</item>
+        <item name="android:letterSpacing">0.32</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:shadowColor">#CC5C0A10</item>
+        <item name="android:shadowDx">0</item>
+        <item name="android:shadowDy">2</item>
+        <item name="android:shadowRadius">14</item>
+    </style>
+
+    <style name="Text.BrandSub">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/bone_dim</item>
+        <item name="android:letterSpacing">0.34</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <style name="Text.Stage">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">9sp</item>
+        <item name="android:textColor">@color/ash_dim</item>
+        <item name="android:letterSpacing">0.4</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- Card heading -->
+    <style name="Text.SectionTitle">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/blood_400</item>
+        <item name="android:letterSpacing">0.22</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- Rows inside cards -->
+    <style name="Text.RowTitle">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/bone</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <style name="Text.RowDetail">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">11.5sp</item>
+        <item name="android:textColor">@color/ash</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+
+    <style name="Text.Value">
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/bone_dim</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <style name="Text.Caption">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/ash_dim</item>
+        <item name="android:letterSpacing">0.04</item>
+        <item name="android:lineSpacingExtra">3dp</item>
+    </style>
+
+    <style name="Text.StatusChip">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">9.5sp</item>
+        <item name="android:textColor">@color/ash</item>
+        <item name="android:letterSpacing">0.12</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">8dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingBottom">4dp</item>
+    </style>
+
+</resources>

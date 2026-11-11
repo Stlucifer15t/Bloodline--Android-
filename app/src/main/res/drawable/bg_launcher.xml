@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Launcher backdrop: a crimson glow bleeding down from the top of the screen
+    into near-black, with a vignette at the bottom edge.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item android:drawable="@color/ink_900" />
+
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="0.5"
+                android:centerY="0.14"
+                android:centerColor="#128A0F18"
+                android:endColor="#00000000"
+                android:gradientRadius="430dp"
+                android:startColor="#4DB3121C"
+                android:type="radial" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:endColor="#F207050A"
+                android:startColor="#00000000"
+                android:type="linear" />
+        </shape>
+    </item>
+
+</layer-list>
