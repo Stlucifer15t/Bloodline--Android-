@@ -23,6 +23,7 @@ class RuntimeRegistryTest {
         assertTrue(
             ids.containsAll(
                 listOf(
+                    ComponentIds.NATIVE_HOSTING,
                     ComponentIds.WINE,
                     ComponentIds.CPU_TRANSLATION,
                     ComponentIds.CONTAINER,
@@ -31,6 +32,27 @@ class RuntimeRegistryTest {
                     ComponentIds.STORAGE,
                 )
             )
+        )
+    }
+
+    @Test
+    fun `native hosting reports the status measured on the device`() {
+        val components = RuntimeRegistry.components(nativeHosting = IntegrationStatus.READY)
+        val native = components.first { it.id == ComponentIds.NATIVE_HOSTING }
+
+        assertEquals(IntegrationStatus.READY, native.status)
+        // Every other component is unaffected by the measurement.
+        assertFalse(
+            components.filter { it.id != ComponentIds.NATIVE_HOSTING }
+                .any { it.status == IntegrationStatus.READY },
+        )
+    }
+
+    @Test
+    fun `overall status is ready only when every component is`() {
+        assertEquals(
+            IntegrationStatus.PARTIAL,
+            RuntimeRegistry.overallStatus(nativeHosting = IntegrationStatus.READY),
         )
     }
 

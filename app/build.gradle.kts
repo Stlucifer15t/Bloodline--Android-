@@ -30,6 +30,17 @@ android {
     namespace = "com.bloodline.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
+    // Native code is built with the NDK: the probe that proves a bundled
+    // executable can run inside the APK (see app/src/main/cpp).
+    ndkVersion = "27.0.12077973"
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.bloodline.android"
         minSdk = libs.versions.minSdk.get().toInt()

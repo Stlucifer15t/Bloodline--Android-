@@ -53,7 +53,7 @@ jobs:
           mkdir -p "$SDK/licenses"
           # Accept every licence prompt non-interactively.
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0"
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0" "ndk;27.0.12077973"
           echo "Installed platforms:"
           ls "$SDK/platforms"
 
@@ -87,6 +87,22 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee gradle-assemble.log
+
+      - name: Verify the native probe is packaged
+        # The whole point of Milestone 3: the probe is an executable renamed to
+        # libnative_probe.so, and Android only extracts (and permits executing)
+        # files that look like shared libraries. If it is missing from lib/<abi>/,
+        # nothing in the future runtime will ever be able to run.
+        run: |
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          echo "Inspecting $APK"
+          if unzip -l "$APK" | grep -E "lib/[^/]+/libnative_probe\.so"; then
+            echo "Native probe found in the APK."
+          else
+            echo "::error::libnative_probe.so is missing from the APK"
+            unzip -l "$APK" | head -n 40
+            exit 1
+          fi
 
       - name: Locate APK
         id: apk

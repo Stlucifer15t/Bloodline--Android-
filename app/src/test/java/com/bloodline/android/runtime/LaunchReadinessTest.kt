@@ -84,4 +84,30 @@ class LaunchReadinessTest {
 
         assertEquals(LaunchState.Ready, state)
     }
+
+    @Test
+    fun `stays blocked while native hosting has not been verified`() {
+        // Everything the registry can vouch for is ready, except the one thing
+        // that is measured on the device.
+        val components = RuntimeRegistry
+            .components(nativeHosting = IntegrationStatus.READY)
+            .map { it.copy(status = IntegrationStatus.READY) }
+            .map { if (it.id == ComponentIds.NATIVE_HOSTING) it.copy(status = IntegrationStatus.NOT_INTEGRATED) else it }
+
+        val state = LaunchReadiness.evaluate(install = install(complete = true), components = components)
+
+        assertEquals(LaunchState.Blocked(BlockReason.RUNTIME_NOT_INTEGRATED), state)
+    }
+
+    @Test
+    fun `allows launch once the whole shipped stack reports ready`() {
+        val components = RuntimeRegistry
+            .components(nativeHosting = IntegrationStatus.READY)
+            .map { it.copy(status = IntegrationStatus.READY) }
+
+        assertEquals(
+            LaunchState.Ready,
+            LaunchReadiness.evaluate(install = install(complete = true), components = components),
+        )
+    }
 }
