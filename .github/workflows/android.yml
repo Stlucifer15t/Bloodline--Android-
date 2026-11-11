@@ -61,15 +61,21 @@ jobs:
 
       - name: Run unit tests
         id: tests
-        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee gradle-tests.log
 
       - name: Run Android lint
         id: lint
-        run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:lintDebug 2>&1 | tee gradle-lint.log
 
       - name: Build debug APK
         id: assemble
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee gradle-assemble.log
 
       - name: Locate APK
         id: apk
@@ -111,11 +117,37 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gradle-failure-logs
-          path: |
-            app/build/reports/
-            ~/.gradle/daemon/*/daemon-*.out.log
+          path: gradle-*.log
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Report the failure on the pull request
+        # Without this, the only way to read a CI error is to dig through the
+        # Actions UI. The failing Gradle output is posted straight into the PR.
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "### :x: Android CI failed"
+            echo ""
+            echo "Failing run: $RUN_URL"
+            echo ""
+            for LOG in gradle-tests.log gradle-lint.log gradle-assemble.log; do
+              if [ -s "$LOG" ]; then
+                echo "<details><summary><code>$LOG</code> — last 150 lines</summary>"
+                echo ""
+                echo '```'
+                tail -n 150 "$LOG"
+                echo '```'
+                echo "</details>"
+                echo ""
+              fi
+            done
+          } > failure-report.md
+          gh pr comment "$PR_NUMBER" --body-file failure-report.md
 
       - name: Write job summary
         if: always()
