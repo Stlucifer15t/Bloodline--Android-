@@ -140,10 +140,20 @@ jobs:
             echo ""
             for LOG in gradle-tests.log gradle-lint.log gradle-assemble.log; do
               if [ -s "$LOG" ]; then
-                echo "<details><summary><code>$LOG</code> — last 150 lines</summary>"
+                echo "<details open><summary><code>$LOG</code> — what went wrong</summary>"
                 echo ""
                 echo '```'
-                tail -n 150 "$LOG"
+                # Gradle prints "* What went wrong:" before the stacktrace.
+                awk '/^\* What went wrong:/{flag=1} flag' "$LOG" | head -n 40
+                echo "..."
+                grep -m 8 "Caused by:" "$LOG"
+                echo '```'
+                echo "</details>"
+                echo ""
+                echo "<details><summary><code>$LOG</code> — last 40 lines</summary>"
+                echo ""
+                echo '```'
+                tail -n 40 "$LOG"
                 echo '```'
                 echo "</details>"
                 echo ""
