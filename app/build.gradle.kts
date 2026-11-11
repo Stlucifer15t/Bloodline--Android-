@@ -34,12 +34,22 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("bloodline-release.jks")
+            storePassword = "07063510088Aa"
+            keyAlias = "bloodline"
+            keyPassword = "07063510088Aa"
+        }
+    }
+
     buildTypes {
         debug {
             versionNameSuffix = "-dev"
         }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
