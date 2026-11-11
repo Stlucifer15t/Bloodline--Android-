@@ -28,7 +28,10 @@ android {
     }
 
     buildFeatures {
+        // Layout bindings instead of findViewById.
         viewBinding = true
+        // Needed for BuildConfig.VERSION_NAME, shown in the launcher footer.
+        buildConfig = true
     }
 
     buildTypes {
