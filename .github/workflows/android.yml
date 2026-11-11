@@ -6,11 +6,6 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      build_release:
-        description: 'Also build and upload a signed release APK'
-        type: boolean
-        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -116,23 +111,26 @@ jobs:
           retention-days: 30
           compression-level: 6
 
-      - name: Provide the release signing key
-        # The keystore is never committed. When a release build is requested it
-        # comes from the BLOODLINE_KEYSTORE_BASE64 repository secret.
-        if: ${{ inputs.build_release }}
+      - name: Prepare the release signing key
+        # The keystore is never committed. When repository secrets provide one
+        # it is decoded here; without them the release APK is built unsigned
+        # (which still verifies the release configuration) and not uploaded.
+        id: signing
         env:
           KEYSTORE_BASE64: ${{ secrets.BLOODLINE_KEYSTORE_BASE64 }}
-          KEYSTORE_ALIAS: ${{ secrets.BLOODLINE_KEY_ALIAS }}
+          KEY_ALIAS: ${{ secrets.BLOODLINE_KEY_ALIAS }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_ALIAS" ]; then
-            echo "::error::Release builds need the BLOODLINE_KEYSTORE_BASE64 and BLOODLINE_KEY_ALIAS secrets"
-            exit 1
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEY_ALIAS" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > app/bloodline-release.jks
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Release APK will be signed."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No signing secrets configured: the release APK will be unsigned and is not uploaded."
           fi
-          echo "$KEYSTORE_BASE64" | base64 -d > app/bloodline-release.jks
 
       - name: Build release APK
         id: assemble_release
-        if: ${{ inputs.build_release }}
         env:
           BLOODLINE_STORE_PASSWORD: ${{ secrets.BLOODLINE_STORE_PASSWORD }}
           BLOODLINE_KEY_ALIAS: ${{ secrets.BLOODLINE_KEY_ALIAS }}
@@ -142,7 +140,7 @@ jobs:
           ./gradlew --no-daemon --stacktrace :app:assembleRelease 2>&1 | tee gradle-release.log
 
       - name: Upload release APK
-        if: ${{ inputs.build_release }}
+        if: ${{ steps.signing.outputs.available == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: bloodlines-release-apk
@@ -238,6 +236,7 @@ jobs:
             echo "| Unit tests | ${{ steps.tests.outcome }} |"
             echo "| Android lint | ${{ steps.lint.outcome }} |"
             echo "| Debug APK | ${{ steps.assemble.outcome }} |"
+            echo "| Release APK (built; uploaded when signed) | ${{ steps.assemble_release.outcome }} |"
             echo ""
             if [ "${{ steps.assemble.outcome }}" = "success" ]; then
               echo "**Artifact:** \`${{ steps.apk.outputs.name }}\` (${{ steps.apk.outputs.size }})"
