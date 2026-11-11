@@ -28,7 +28,30 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        # GitHub's ubuntu runners ship the Android SDK preinstalled, so we only
+        # need to accept the licences and make sure the platform we compile
+        # against is present. No third-party setup action is required.
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
+            echo "::error::No Android SDK found on the runner (ANDROID_HOME='$SDK')"
+            exit 1
+          fi
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found at $SDKMANAGER"
+            ls -R "$SDK/cmdline-tools" | head -n 20
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          mkdir -p "$SDK/licenses"
+          # Accept every licence prompt non-interactively.
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0"
+          echo "Installed platforms:"
+          ls "$SDK/platforms"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
