@@ -1,0 +1,33 @@
+# Gradle / build output
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# IntelliJ / Android Studio
+*.iml
+*.ipr
+*.iws
+.idea/
+misc.xml
+deploymentTargetDropDown.xml
+render.experimental.xml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Packaged output (CI uploads these as GitHub Actions artifacts instead)
+*.apk
+*.aab
+*.ap_
+
+# Java class files / Dalvik artifacts
+*.class
+*.dex
+
+# NOTE: gradle/wrapper/gradle-wrapper.jar is intentionally NOT ignored -
+# the wrapper jar must be committed so CI can bootstrap Gradle.

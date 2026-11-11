@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        No permissions are requested at this stage.
+
+        The launcher only reads app-specific storage (getExternalFilesDir /
+        filesDir), which requires no runtime permission and works under
+        Android 11+ scoped storage. Permissions such as POST_NOTIFICATIONS or
+        storage access via the Storage Access Framework will be added in the
+        milestone that introduces the runtime and the game-file importer.
+
+        IMPORTANT (future native runtime): the Android 10+ W^X policy forbids
+        executing binaries out of the writable app data directory. The native
+        runtime therefore has to ship its executables as shared libraries
+        (lib*.so) in the APK so that the package installer extracts them into
+        the executable, read-only nativeLibraryDir. That is why
+        android:extractNativeLibs is pinned to "true" here.
+    -->
+    <application
+        android:name=".BloodlinesApplication"
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.Bloodlines"
+        tools:targetApi="31">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.Bloodlines"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

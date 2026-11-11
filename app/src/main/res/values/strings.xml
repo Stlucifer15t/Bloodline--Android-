@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bloodlines</string>
+
+    <!-- Header -->
+    <string name="brand_title">BLOODLINES</string>
+    <string name="brand_subtitle">Vampire: The Masquerade</string>
+    <string name="brand_stage">Android Compatibility Wrapper</string>
+
+    <!-- Section titles -->
+    <string name="section_game_installation">Game Installation</string>
+    <string name="section_runtime">Compatibility Runtime</string>
+    <string name="section_graphics">Graphics</string>
+    <string name="section_audio">Audio</string>
+
+    <!-- Installation card -->
+    <string name="install_not_found">No game files found</string>
+    <string name="install_found">Game files detected</string>
+    <string name="install_incomplete">Partial install — data folder missing</string>
+    <string name="install_detail_not_found">Copy your own, legally owned copy of the game into the launcher folder, or use the importer once it lands. Nothing is bundled with this app.</string>
+    <string name="install_detail_found">Executable located in the launcher\'s own storage.</string>
+    <string name="install_detail_incomplete">Vampire.exe was found, but the \"Vampire\" data folder is missing next to it. The game will not start without it.</string>
+    <string name="install_scanning">Scanning storage…</string>
+    <string name="install_path_label">Path</string>
+    <string name="install_expected_label">Expected</string>
+    <string name="install_expected_value">Vampire.exe + Vampire/ data folder</string>
+    <string name="install_search_path_label">Searching</string>
+    <string name="import_game_files">Import Game Files</string>
+
+    <!-- Runtime card -->
+    <string name="runtime_overall_label">Runtime status</string>
+    <string name="runtime_overall_detail">The Windows compatibility layer is not integrated yet. The launcher ships as a UI foundation only.</string>
+
+    <!-- Status labels -->
+    <string name="status_ready">Ready</string>
+    <string name="status_partial">Partial</string>
+    <string name="status_not_integrated">Not integrated</string>
+
+    <!-- Graphics card (placeholder) -->
+    <string name="graphics_renderer">Renderer</string>
+    <string name="graphics_renderer_value">VirGL (planned)</string>
+    <string name="graphics_wrapper">DirectX wrapper</string>
+    <string name="graphics_wrapper_value">WineD3D (planned)</string>
+    <string name="graphics_resolution">Resolution</string>
+    <string name="graphics_resolution_value">1280 × 720</string>
+    <string name="graphics_placeholder_note">Placeholder. These controls become active once the graphics translation layer is integrated.</string>
+
+    <!-- Audio card (placeholder) -->
+    <string name="audio_backend">Backend</string>
+    <string name="audio_backend_value">ALSA bridge (planned)</string>
+    <string name="audio_output">Output</string>
+    <string name="audio_output_value">AAudio / OpenSL ES</string>
+    <string name="audio_placeholder_note">Placeholder. Audio routing is wired up together with the runtime container.</string>
+
+    <!-- Launch -->
+    <string name="launch_game">Launch Game</string>
+    <string name="launch_ready">Runtime ready — tap to launch</string>
+    <string name="launch_locked_no_install">Import your game files to enable launch</string>
+    <string name="launch_locked_incomplete">Game data folder missing — launch stays disabled</string>
+    <string name="launch_locked_no_runtime">The compatibility runtime is not integrated yet — launch stays disabled</string>
+
+    <plurals name="install_search_path_value">
+        <item quantity="one">%1$d app folder</item>
+        <item quantity="other">%1$d app folders</item>
+    </plurals>
+
+    <!-- Import dialog -->
+    <string name="import_dialog_title">Import game files</string>
+    <string name="import_dialog_message">The importer is part of the next milestone, so nothing is copied yet.\n\nWhen it lands it will copy your own legally owned installation into:\n\n%1$s\n\nRequired layout:\n• Vampire.exe\n• Vampire/  (game data folder)\n• Unofficial_Patch/  (optional, recommended)\n\nThis project does not download, bundle or redistribute the game.</string>
+    <string name="import_dialog_positive">Got it</string>
+
+    <!-- Footer -->
+    <string name="footer_version">Milestone 1 · foundation build %1$s</string>
+    <string name="footer_disclaimer">Fan-made compatibility launcher. Vampire: The Masquerade – Bloodlines is a trademark of Paradox Interactive AB. Game files are not included and must be supplied by you.</string>
+</resources>

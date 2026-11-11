@@ -1,0 +1,67 @@
+package com.bloodline.android.runtime
+
+import com.bloodline.android.runtime.IntegrationStatus.NOT_INTEGRATED
+import com.bloodline.android.runtime.IntegrationStatus.PARTIAL
+import com.bloodline.android.runtime.IntegrationStatus.READY
+
+/**
+ * The catalogue of everything that has to exist before Vampire.exe can start.
+ *
+ * Each entry is intentionally independent: Wine, the CPU translator, the
+ * container, graphics and audio can each be built, tested and replaced without
+ * touching the others. The registry is pure Kotlin so the state of the stack is
+ * unit testable without an Android device.
+ */
+object RuntimeRegistry {
+
+    /** Current state of every planned runtime component. */
+    fun components(): List<RuntimeComponent> = listOf(
+        RuntimeComponent(
+            id = ComponentIds.WINE,
+            title = "Wine — Windows API layer",
+            detail = "Planned: Wine 10.x built for Android (LGPL-2.1+). Nothing is bundled today.",
+            status = NOT_INTEGRATED,
+        ),
+        RuntimeComponent(
+            id = ComponentIds.CPU_TRANSLATION,
+            title = "Box86 / Box64 — x86 → ARM64",
+            detail = "Planned. Vampire.exe is a 32-bit binary, so Box86 inside a 32-bit Wine " +
+                "prefix is required; Box64 on its own cannot run it.",
+            status = NOT_INTEGRATED,
+        ),
+        RuntimeComponent(
+            id = ComponentIds.CONTAINER,
+            title = "Rootless container",
+            detail = "Planned: glibc userland + PRoot. Android 10+ W^X forbids executing files " +
+                "from app data, so binaries ship as lib*.so in the APK.",
+            status = NOT_INTEGRATED,
+        ),
+        RuntimeComponent(
+            id = ComponentIds.GRAPHICS,
+            title = "Graphics translation",
+            detail = "Planned: VirGL + WineD3D for DirectX 9. Turnip is Adreno only and PanVK is " +
+                "still experimental on Mali v7 GPUs such as the G52.",
+            status = NOT_INTEGRATED,
+        ),
+        RuntimeComponent(
+            id = ComponentIds.AUDIO,
+            title = "Audio bridge",
+            detail = "Planned: Wine ALSA → AAudio / OpenSL ES. No implementation yet.",
+            status = NOT_INTEGRATED,
+        ),
+        RuntimeComponent(
+            id = ComponentIds.STORAGE,
+            title = "Storage & game files",
+            detail = "Detection of an existing installation works. Importing files is not " +
+                "implemented yet.",
+            status = PARTIAL,
+        ),
+    )
+
+    /** Aggregate status: READY only when every component is READY. */
+    fun overallStatus(): IntegrationStatus = when {
+        components().all { it.status == READY } -> READY
+        components().any { it.status != NOT_INTEGRATED } -> PARTIAL
+        else -> NOT_INTEGRATED
+    }
+}

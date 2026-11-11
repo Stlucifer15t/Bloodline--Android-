@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Surfaces: near-black with a violet cast, like a dimly lit haven. -->
+    <color name="ink_900">#FF07050A</color>
+    <color name="ink_850">#FF0B0710</color>
+    <color name="ink_800">#FF120C16</color>
+    <color name="ink_700">#FF1A1220</color>
+    <color name="ink_600">#FF241A2C</color>
+    <color name="ink_500">#FF33243D</color>
+
+    <!-- Blood: the accent family. -->
+    <color name="blood_800">#FF3D060C</color>
+    <color name="blood_700">#FF5C0A10</color>
+    <color name="blood_600">#FF8A0F18</color>
+    <color name="blood_500">#FFB3121C</color>
+    <color name="blood_400">#FFD42A33</color>
+
+    <!-- Text: aged parchment over ash. -->
+    <color name="bone">#FFEDE3D2</color>
+    <color name="bone_dim">#FFC7BAA4</color>
+    <color name="ash">#FF9A8F99</color>
+    <color name="ash_dim">#FF6A616F</color>
+    <color name="ash_faint">#FF463F4B</color>
+
+    <!-- Status palette. -->
+    <color name="status_ready">#FF4FA863</color>
+    <color name="status_partial">#FFCE9A28</color>
+    <color name="status_planned">#FF7A7280</color>
+
+    <!-- Text colours that react to enabled/disabled state. -->
+    <color name="button_text_enabled">#FFEDE3D2</color>
+    <color name="button_text_disabled">#FF6A616F</color>
+
+</resources>
