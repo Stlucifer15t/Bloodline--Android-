@@ -52,8 +52,8 @@ object RuntimeRegistry {
         RuntimeComponent(
             id = ComponentIds.STORAGE,
             title = "Storage & game files",
-            detail = "Detection of an existing installation works. Importing files is not " +
-                "implemented yet.",
+            detail = "Detects the game in app storage and in a folder you pick; files are read " +
+                "in place, never copied. Exposing them to the Wine prefix is not implemented.",
             status = PARTIAL,
         ),
     )

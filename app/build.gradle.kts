@@ -87,6 +87,8 @@ tasks.withType<Test>().configureEach {
 dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
+    // Navigating the game folder the user picks with the Storage Access Framework.
+    implementation(libs.androidx.documentfile)
 
     testImplementation(libs.junit)
 }

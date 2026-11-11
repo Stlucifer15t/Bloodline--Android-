@@ -1,7 +1,8 @@
 package com.bloodline.android.runtime
 
 import com.bloodline.android.game.GameInstall
-import java.io.File
+import com.bloodline.android.game.GameLocation
+import com.bloodline.android.game.LocationKind
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -12,8 +13,11 @@ import org.junit.Test
 class LaunchReadinessTest {
 
     private fun install(complete: Boolean) = GameInstall(
-        executable = File("/storage/Bloodlines/Vampire.exe"),
-        rootDirectory = File("/storage/Bloodlines"),
+        location = GameLocation(
+            kind = LocationKind.APP_STORAGE,
+            reference = "/storage/Bloodlines",
+            displayPath = "/storage/Bloodlines",
+        ),
         hasDataDirectory = complete,
     )
 
