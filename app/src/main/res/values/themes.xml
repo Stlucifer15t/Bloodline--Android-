@@ -26,6 +26,18 @@
         <item name="android:textColorHint">@color/ash_dim</item>
     </style>
 
+    <!--
+        Base text style.
+
+        It exists because the child styles below use dot notation
+        (Text.Brand, Text.RowTitle, ...): in Android a dot means "inherit from
+        the style named before the dot", so `Text` itself has to be defined.
+    -->
+    <style name="Text">
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:textColor">@color/bone</item>
+    </style>
+
     <!-- Branding -->
     <style name="Text.Brand">
         <item name="android:fontFamily">serif</item>
