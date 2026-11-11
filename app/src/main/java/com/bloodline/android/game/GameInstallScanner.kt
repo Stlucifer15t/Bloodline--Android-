@@ -1,18 +1,17 @@
 package com.bloodline.android.game
 
-import java.io.File
-
 /**
- * Looks for a user supplied installation of the game on device storage.
+ * Looks for a user supplied installation of the game.
  *
  * The scanner only ever reads; it never downloads, copies or modifies game
- * files. It is plain Kotlin backed by [File] so it can be unit tested on the
- * JVM with a temporary folder.
+ * files. It works against [StorageFolder], so the same logic covers app storage
+ * and a folder picked through the Storage Access Framework, and it stays unit
+ * testable on the JVM.
  *
- * @param searchRoots directories to inspect, in priority order.
+ * @param searchRoots folders to inspect, in priority order.
  */
 class GameInstallScanner(
-    private val searchRoots: List<File>,
+    private val searchRoots: List<StorageFolder>,
 ) {
 
     /**
@@ -24,7 +23,7 @@ class GameInstallScanner(
         var partial: GameInstall? = null
 
         for (root in searchRoots) {
-            for (candidate in scan(root)) {
+            for (candidate in scan(root, depth = 0)) {
                 if (candidate.isComplete) return candidate
                 if (partial == null) partial = candidate
             }
@@ -32,36 +31,32 @@ class GameInstallScanner(
         return partial
     }
 
-    private fun scan(directory: File, depth: Int = 0): List<GameInstall> {
+    private fun scan(folder: StorageFolder, depth: Int): List<GameInstall> {
         if (depth > MAX_DEPTH) return emptyList()
-        // Unreadable (or missing) folders are skipped rather than crashing:
-        // on Android 11+ several legacy public paths are simply not readable.
-        val children = directory.listFiles() ?: return emptyList()
+        // Unreadable or revoked folders are skipped rather than crashing.
+        val entries = runCatching { folder.entries() }.getOrNull() ?: return emptyList()
+
+        // Checked once per folder: the data folder has to sit next to the
+        // executable, and listing a folder is not free (each entry of a
+        // Storage Access Framework tree is a query).
+        val hasDataDirectory = entries.any {
+            it.isDirectory && it.name.equals(DATA_DIRECTORY_NAME, ignoreCase = true)
+        }
 
         val found = ArrayList<GameInstall>()
-        for (child in children) {
-            if (child.name.startsWith(".")) continue
+        for (entry in entries) {
+            if (entry.name.startsWith(".")) continue
 
-            if (child.isFile && child.name.equals(EXECUTABLE_NAME, ignoreCase = true)) {
-                found += describe(child)
-            } else if (child.isDirectory) {
-                found += scan(child, depth + 1)
+            if (!entry.isDirectory && entry.name.equals(EXECUTABLE_NAME, ignoreCase = true)) {
+                found += GameInstall(
+                    location = folder.location,
+                    hasDataDirectory = hasDataDirectory,
+                )
+            } else if (entry.isDirectory) {
+                found += scan(entry.folder(), depth + 1)
             }
         }
         return found
-    }
-
-    private fun describe(executable: File): GameInstall {
-        val root = executable.parentFile ?: executable
-        val hasDataDirectory = root.listFiles()?.any {
-            it.isDirectory && it.name.equals(DATA_DIRECTORY_NAME, ignoreCase = true)
-        } == true
-
-        return GameInstall(
-            executable = executable,
-            rootDirectory = root,
-            hasDataDirectory = hasDataDirectory,
-        )
     }
 
     companion object {
@@ -73,8 +68,7 @@ class GameInstallScanner(
 
         /**
          * How deep to walk. Keeps the scan cheap and predictable even when a
-         * root folder is huge; the importer will write to a known folder
-         * anyway, so a deep search buys nothing.
+         * root folder is huge.
          */
         private const val MAX_DEPTH = 2
     }

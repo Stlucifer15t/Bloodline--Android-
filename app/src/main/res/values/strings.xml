@@ -19,6 +19,7 @@
     <string name="install_incomplete">Partial install — data folder missing</string>
     <string name="install_detail_not_found">Copy your own, legally owned copy of the game into the launcher folder, or use the importer once it lands. Nothing is bundled with this app.</string>
     <string name="install_detail_found">Executable located in the launcher\'s own storage.</string>
+    <string name="install_detail_found_external">Game files detected in the folder you selected. Nothing is copied — the launcher reads them where they are.</string>
     <string name="install_detail_incomplete">Vampire.exe was found, but the \"Vampire\" data folder is missing next to it. The game will not start without it.</string>
     <string name="install_scanning">Scanning storage…</string>
     <string name="install_path_label">Path</string>
@@ -26,6 +27,12 @@
     <string name="install_expected_value">Vampire.exe + Vampire/ data folder</string>
     <string name="install_search_path_label">Searching</string>
     <string name="import_game_files">Import Game Files</string>
+    <string name="import_change_folder">Change Game Folder</string>
+    <string name="import_linked">Game folder linked: %1$s</string>
+    <string name="import_access_failed">Android did not grant access to that folder</string>
+    <string name="import_invalid_title">No game found there</string>
+    <string name="import_invalid_message">The folder you picked does not contain Vampire.exe.\n\nChoose the folder that directly contains:\n\n• Vampire.exe\n• Vampire/  (game data)\n\nNothing is copied: the launcher reads your own files where they already are.</string>
+    <string name="import_dialog_positive">Got it</string>
 
     <!-- Runtime card -->
     <string name="runtime_overall_label">Runtime status</string>
@@ -60,14 +67,11 @@
     <string name="launch_locked_no_runtime">The compatibility runtime is not integrated yet — launch stays disabled</string>
 
     <plurals name="install_search_path_value">
-        <item quantity="one">%1$d app folder</item>
-        <item quantity="other">%1$d app folders</item>
+        <item quantity="one">%1$d location</item>
+        <item quantity="other">%1$d locations</item>
     </plurals>
 
-    <!-- Import dialog -->
-    <string name="import_dialog_title">Import game files</string>
-    <string name="import_dialog_message">The importer is part of the next milestone, so nothing is copied yet.\n\nWhen it lands it will copy your own legally owned installation into:\n\n%1$s\n\nRequired layout:\n• Vampire.exe\n• Vampire/  (game data folder)\n• Unofficial_Patch/  (optional, recommended)\n\nThis project does not download, bundle or redistribute the game.</string>
-    <string name="import_dialog_positive">Got it</string>
+    <!-- Import flow -->
 
     <!-- Footer -->
     <string name="footer_version">Milestone 1 · foundation build %1$s</string>

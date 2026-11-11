@@ -111,6 +111,43 @@ jobs:
           retention-days: 30
           compression-level: 6
 
+      - name: Prepare the release signing key
+        # The keystore is never committed. When repository secrets provide one
+        # it is decoded here; without them the release APK is built unsigned
+        # (which still verifies the release configuration) and not uploaded.
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BLOODLINE_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.BLOODLINE_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEY_ALIAS" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > app/bloodline-release.jks
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Release APK will be signed."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No signing secrets configured: the release APK will be unsigned and is not uploaded."
+          fi
+
+      - name: Build release APK
+        id: assemble_release
+        env:
+          BLOODLINE_STORE_PASSWORD: ${{ secrets.BLOODLINE_STORE_PASSWORD }}
+          BLOODLINE_KEY_ALIAS: ${{ secrets.BLOODLINE_KEY_ALIAS }}
+          BLOODLINE_KEY_PASSWORD: ${{ secrets.BLOODLINE_KEY_PASSWORD }}
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease 2>&1 | tee gradle-release.log
+
+      - name: Upload release APK
+        if: ${{ steps.signing.outputs.available == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bloodlines-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -124,21 +161,25 @@ jobs:
           retention-days: 7
 
       - name: Report the failure
+        if: failure()
+        continue-on-error: true
         # Two channels, because a CI error is useless if nobody can read it:
         # 1. a comment on the pull request, and
         # 2. annotations on the failing run.
-        if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # Reporting must never mask the real failure: a grep that finds
+          # nothing must not abort this step.
+          set +e
           {
             echo "### :x: Android CI failed"
             echo ""
             echo "Failing run: $RUN_URL"
             echo ""
-            for LOG in gradle-tests.log gradle-lint.log gradle-assemble.log; do
+            for LOG in gradle-tests.log gradle-lint.log gradle-assemble.log gradle-release.log; do
               if [ -s "$LOG" ]; then
                 echo "<details open><summary><code>$LOG</code> — what went wrong</summary>"
                 echo ""
@@ -168,10 +209,16 @@ jobs:
             exit 0
           fi
 
-          # Fallback: surface the "What went wrong" section as run annotations.
-          for LOG in gradle-assemble.log gradle-lint.log gradle-tests.log; do
+          # Fallback: surface the most useful lines as run annotations
+          # (compile errors first, then Gradle's own summary). Runners show a
+          # limited number of annotations, so keep the list short.
+          for LOG in gradle-release.log gradle-assemble.log gradle-lint.log gradle-tests.log; do
             [ -s "$LOG" ] || continue
-            awk '/What went wrong:/{flag=1} flag' "$LOG" | head -n 12 | while IFS= read -r line; do
+            {
+              grep -E "^e: " "$LOG" | head -n 8
+              awk '/What went wrong:/{flag=1} flag' "$LOG" | head -n 8
+              grep -E "FAILED" "$LOG" | head -n 6
+            } | while IFS= read -r line; do
               line="${line//'%'/'%25'}"
               line="${line//$'\r'/'%0D'}"
               echo "::error title=$LOG::$line"
@@ -189,6 +236,7 @@ jobs:
             echo "| Unit tests | ${{ steps.tests.outcome }} |"
             echo "| Android lint | ${{ steps.lint.outcome }} |"
             echo "| Debug APK | ${{ steps.assemble.outcome }} |"
+            echo "| Release APK (built; uploaded when signed) | ${{ steps.assemble_release.outcome }} |"
             echo ""
             if [ "${{ steps.assemble.outcome }}" = "success" ]; then
               echo "**Artifact:** \`${{ steps.apk.outputs.name }}\` (${{ steps.apk.outputs.size }})"

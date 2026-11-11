@@ -1,14 +1,18 @@
 package com.bloodline.android.storage
 
 import android.content.Context
+import com.bloodline.android.game.StorageFolder
 import java.io.File
 
 /**
  * Where the launcher keeps, and looks for, the game files.
  *
- * Only app specific directories are used. They need no storage permission and
- * remain readable under Android 11+ scoped storage, which makes the launcher
- * behave the same on every supported device.
+ * Two kinds of location are supported:
+ *
+ * 1. **App specific storage** — needs no permission and works under Android 11+
+ *    scoped storage. Users can copy the game here with any file manager.
+ * 2. **A folder the user picks** — reached through the Storage Access Framework
+ *    and read in place, so no gigabytes are copied.
  */
 object StorageLocations {
 
@@ -16,8 +20,8 @@ object StorageLocations {
     const val GAME_FOLDER_NAME = "Bloodlines"
 
     /**
-     * Import destination: `Android/data/<package>/files/Bloodlines`.
-     * The importer (next milestone) copies the user's own game here.
+     * Where the game belongs if the user copies it in manually:
+     * `Android/data/<package>/files/Bloodlines`.
      */
     fun importTarget(context: Context): File {
         val base = context.getExternalFilesDir(null) ?: context.filesDir
@@ -26,23 +30,35 @@ object StorageLocations {
 
     /**
      * Roots inspected by [com.bloodline.android.game.GameInstallScanner],
-     * in priority order.
+     * in priority order: the folder the user picked comes first, so a deliberate
+     * choice always beats whatever happens to sit in app storage.
      */
-    fun searchRoots(context: Context): List<File> {
-        val roots = LinkedHashSet<File>()
+    fun searchRoots(context: Context, gameFolderStore: GameFolderStore): List<StorageFolder> {
+        val roots = LinkedHashMap<String, StorageFolder>()
 
-        // App specific external storage, including SD cards when present.
+        // 1. The folder the user selected, if we can still read it.
+        gameFolderStore.load()?.let { uri ->
+            runCatching { DocumentFolder.fromTree(context, uri) }
+                .onSuccess { folder -> roots[folder.location.reference] = folder }
+        }
+
+        // 2. App specific external storage, including SD cards when present.
         context.getExternalFilesDirs(null)
             .filterNotNull()
             .forEach { dir ->
-                roots += dir
-                roots += File(dir, GAME_FOLDER_NAME)
+                addFileRoot(roots, dir)
+                addFileRoot(roots, File(dir, GAME_FOLDER_NAME))
             }
 
-        // Internal storage fallback.
-        roots += context.filesDir
-        roots += File(context.filesDir, GAME_FOLDER_NAME)
+        // 3. Internal storage fallback.
+        addFileRoot(roots, context.filesDir)
+        addFileRoot(roots, File(context.filesDir, GAME_FOLDER_NAME))
 
-        return roots.toList()
+        return roots.values.toList()
+    }
+
+    private fun addFileRoot(roots: MutableMap<String, StorageFolder>, directory: File) {
+        val folder = FileSystemFolder(directory)
+        roots.putIfAbsent(folder.location.reference, folder)
     }
 }

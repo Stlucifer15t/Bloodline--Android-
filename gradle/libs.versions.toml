@@ -21,11 +21,13 @@ versionName = "0.1.0"
 # dark theme, androidx.core for tinting/compat helpers, JUnit for unit tests.
 appcompat = "1.7.0"
 coreKtx = "1.15.0"
+documentfile = "1.0.1"
 junit = "4.13.2"
 
 [libraries]
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]

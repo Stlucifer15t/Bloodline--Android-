@@ -29,5 +29,11 @@ Thumbs.db
 *.class
 *.dex
 
+# Release signing material: a keystore and its passwords must never be committed.
+# Provide them through keystore.properties (local) or repository secrets (CI).
+keystore.properties
+*.jks
+*.keystore
+
 # NOTE: gradle/wrapper/gradle-wrapper.jar is intentionally NOT ignored -
 # the wrapper jar must be committed so CI can bootstrap Gradle.

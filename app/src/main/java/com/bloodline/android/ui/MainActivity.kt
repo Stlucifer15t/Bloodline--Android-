@@ -1,8 +1,11 @@
 package com.bloodline.android.ui
 
+import android.content.Intent
 import android.content.res.ColorStateList
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -16,6 +19,7 @@ import com.bloodline.android.databinding.ViewConfigRowBinding
 import com.bloodline.android.databinding.ViewStatusRowBinding
 import com.bloodline.android.game.GameInstall
 import com.bloodline.android.game.GameInstallScanner
+import com.bloodline.android.game.LocationKind
 import com.bloodline.android.runtime.BlockReason
 import com.bloodline.android.runtime.ComponentIds
 import com.bloodline.android.runtime.IntegrationStatus
@@ -23,6 +27,8 @@ import com.bloodline.android.runtime.LaunchReadiness
 import com.bloodline.android.runtime.LaunchState
 import com.bloodline.android.runtime.RuntimeComponent
 import com.bloodline.android.runtime.RuntimeRegistry
+import com.bloodline.android.storage.DocumentFolder
+import com.bloodline.android.storage.GameFolderStore
 import com.bloodline.android.storage.StorageLocations
 
 /**
@@ -36,22 +42,30 @@ import com.bloodline.android.storage.StorageLocations
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var scanner: GameInstallScanner
+    private lateinit var gameFolderStore: GameFolderStore
 
     private var install: GameInstall? = null
+
+    /** Built on demand so it always reflects the currently selected folder. */
+    private val scanner: GameInstallScanner
+        get() = GameInstallScanner(StorageLocations.searchRoots(this, gameFolderStore))
+
+    private val folderPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> if (uri != null) onFolderPicked(uri) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        scanner = GameInstallScanner(StorageLocations.searchRoots(this))
+        gameFolderStore = GameFolderStore(this)
 
         bindStaticContent()
         bindRuntimeRows()
         refreshGameStatus()
 
-        binding.importButton.setOnClickListener { showImportDialog() }
+        binding.importButton.setOnClickListener { folderPicker.launch(null) }
         binding.launchButton.setOnClickListener { onLaunchClicked() }
     }
 
@@ -87,11 +101,11 @@ class MainActivity : AppCompatActivity() {
             R.string.install_expected_label,
             R.string.install_expected_value,
         )
-        val roots = StorageLocations.searchRoots(this)
+        val rootCount = StorageLocations.searchRoots(this, gameFolderStore).size
         bindConfigRow(
             binding.installSearchPath,
             R.string.install_search_path_label,
-            resources.getQuantityString(R.plurals.install_search_path_value, roots.size, roots.size),
+            resources.getQuantityString(R.plurals.install_search_path_value, rootCount, rootCount),
         )
 
         binding.footerVersion.text = getString(R.string.footer_version, BuildConfig.VERSION_NAME)
@@ -187,19 +201,29 @@ class MainActivity : AppCompatActivity() {
         binding.installStatus.rowDetail.text = getString(
             when {
                 found == null -> R.string.install_detail_not_found
-                found.isComplete -> R.string.install_detail_found
-                else -> R.string.install_detail_incomplete
+                !found.isComplete -> R.string.install_detail_incomplete
+                found.location.kind == LocationKind.EXTERNAL_FOLDER ->
+                    R.string.install_detail_found_external
+                else -> R.string.install_detail_found
             }
         )
         applyStatus(binding.installStatus, status)
 
-        // Only show the resolved path; when nothing was found the detail line
-        // above already explains what to do.
-        val installPath = found?.rootDirectory?.absolutePath
-        binding.installNote.isVisible = installPath != null
-        if (installPath != null) {
-            binding.installNote.text = installPath
+        // Only show the resolved location; when nothing was found the detail
+        // line above already explains what to do.
+        val location = found?.location?.displayPath
+        binding.installNote.isVisible = location != null
+        if (location != null) {
+            binding.installNote.text = location
         }
+
+        binding.importButton.text = getString(
+            if (gameFolderStore.load() != null) {
+                R.string.import_change_folder
+            } else {
+                R.string.import_game_files
+            }
+        )
 
         updateLaunchState()
     }
@@ -222,13 +246,50 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- actions
 
-    private fun showImportDialog() {
-        val target = StorageLocations.importTarget(this)
+    /**
+     * Links the folder the user picked. Nothing is copied: Android grants
+     * persistent read access to that tree and the launcher reads the game where
+     * it already is, which saves several gigabytes of duplicated data.
+     */
+    private fun onFolderPicked(uri: Uri) {
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+
+        val accessGranted = runCatching {
+            contentResolver.takePersistableUriPermission(uri, flags)
+        }.isSuccess
+        if (!accessGranted) {
+            showMessage(getString(R.string.import_access_failed))
+            return
+        }
+
+        val folder = runCatching { DocumentFolder.fromTree(this, uri) }.getOrNull()
+        val found = folder?.let { runCatching { scannerFor(it).findInstall() }.getOrNull() }
+
+        if (found == null) {
+            // Nothing usable in there: forget the dead end rather than storing
+            // a folder that does not contain the game.
+            runCatching { contentResolver.releasePersistableUriPermission(uri, flags) }
+            showInvalidFolderDialog()
+            return
+        }
+
+        gameFolderStore.save(uri)
+        refreshGameStatus()
+        showMessage(getString(R.string.import_linked, found.location.displayPath))
+    }
+
+    private fun scannerFor(folder: DocumentFolder) = GameInstallScanner(listOf(folder))
+
+    private fun showInvalidFolderDialog() {
         AlertDialog.Builder(this)
-            .setTitle(R.string.import_dialog_title)
-            .setMessage(getString(R.string.import_dialog_message, target.absolutePath))
+            .setTitle(R.string.import_invalid_title)
+            .setMessage(R.string.import_invalid_message)
             .setPositiveButton(R.string.import_dialog_positive, null)
             .show()
+    }
+
+    private fun showMessage(text: String) {
+        Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     }
 
     private fun onLaunchClicked() {

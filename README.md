@@ -4,9 +4,9 @@
 
 A standalone Android launcher for **Vampire: The Masquerade – Bloodlines** (PC, 2004).
 
-This repository is the first milestone of that project: a real, buildable Android
-application with a native dark launcher UI and a modular architecture that the
-Windows compatibility runtime will be plugged into.
+This repository is the foundation of that project: a real, buildable Android
+application with a native dark launcher UI, a working game-file importer, and a
+modular architecture that the Windows compatibility runtime will be plugged into.
 
 > **Read this first.** The launcher does **not** run the game yet. No Wine,
 > Box86/Box64, graphics or audio component has been integrated. The Launch button
@@ -27,9 +27,9 @@ artifact. Verified configuration: Temurin JDK 17 + Gradle 8.13 + AGP 8.13 on
 | --- | --- |
 | Android app module (Kotlin, AGP, Gradle) | ✅ Done |
 | Dark launcher UI (native Android views) | ✅ Done |
-| Game installation detection on device storage | ✅ Done |
+| Game installation detection (app storage + picked folder) | ✅ Done |
+| Import game files (Storage Access Framework) | ✅ Done |
 | Graphics / audio configuration sections | ⚠️ Placeholders (values shown, not wired) |
-| Import game files | ⚠️ UI present, copy pipeline not implemented |
 | Wine (Windows API) | ❌ Not integrated |
 | Box86 / Box64 (x86 → ARM64) | ❌ Not integrated |
 | Rootless container / glibc userland | ❌ Not integrated |
@@ -137,6 +137,41 @@ The workflow runs on every push to `main`, on every pull request targeting
 
 ---
 
+## Signing a release APK
+
+**No keystore or password is stored in this repository.** The build reads the
+signing configuration from, in order:
+
+1. `keystore.properties` in the project root (gitignored), and/or
+2. environment variables — `BLOODLINE_STORE_FILE`, `BLOODLINE_STORE_PASSWORD`,
+   `BLOODLINE_KEY_ALIAS`, `BLOODLINE_KEY_PASSWORD`.
+
+If neither is present, `./gradlew assembleRelease` still succeeds and produces
+an *unsigned* APK (useful for checking that the build works, not installable).
+
+For CI, store the keystore as a base64 secret and run the workflow with
+**Also build and upload a signed release APK** ticked:
+
+```bash
+keytool -genkeypair -v -keystore bloodline-release.jks -keyalg RSA -keysize 2048 \
+        -validity 10000 -alias bloodline
+
+base64 -w0 bloodline-release.jks > keystore.b64
+
+gh secret set BLOODLINE_KEYSTORE_BASE64      < keystore.b64
+gh secret set BLOODLINE_KEY_ALIAS           -b "bloodline"
+gh secret set BLOODLINE_STORE_PASSWORD      -b "<store password>"
+gh secret set BLOODLINE_KEY_PASSWORD        -b "<key password>"
+```
+
+> ⚠️ **A signing key that has ever been committed must be treated as
+> compromised.** Earlier work on this repository committed a keystore *and* its
+> password. If that key is ever used for a public release, generate a fresh one
+> with the command above and update the secrets — anyone with repository access
+> can otherwise sign apps with that identity.
+
+---
+
 ## Game files
 
 **The game is not included, and this project will never include it.**
@@ -153,11 +188,18 @@ The workflow runs on every push to `main`, on every pull request targeting
   └── Unofficial_Patch/   # optional, strongly recommended for a 2004 game
   ```
 
-* The import folder is
-  `Android/data/com.bloodline.android/files/Bloodlines`
-  (revealed by the **Import Game Files** button). Until the importer ships you
-  can copy that structure there yourself with any file manager, and the launcher
-  will detect it.
+* Two ways to point the launcher at your copy:
+
+  1. **Pick the folder** (recommended) — press **Import Game Files** and choose
+     the folder that contains `Vampire.exe`. Android grants the launcher
+     persistent read access to that folder and **nothing is copied**: the game is
+     read where it already is, which avoids duplicating several gigabytes.
+  2. **Copy it into app storage** — put that structure in
+     `Android/data/com.bloodline.android/files/Bloodlines` with any file
+     manager. The launcher scans that folder automatically.
+
+  Either way the launcher only reads. It never modifies, patches or moves your
+  files, and clearing the app's data just forgets the link.
 
 ---
 
@@ -186,11 +228,11 @@ milestone, or the next.**
 
 ## Roadmap
 
-1. **Milestone 1 — foundation** *(this commit)*: Android module, launcher UI,
+1. **Milestone 1 — foundation** *(done)*: Android module, launcher UI,
    storage detection, CI, documentation.
-2. **Milestone 2 — importer**: Storage Access Framework import/copy pipeline with
-   progress, verification of the expected layout, and persistence of the chosen
-   folder.
+2. **Milestone 2 — importer** *(done)*: pick the game folder through the Storage
+   Access Framework, verify the expected layout, persist the access grant, and
+   read the files in place instead of copying them.
 3. **Milestone 3 — native hosting**: prove the W^X-safe `lib*.so` execution path
    end to end with a trivial native binary, then add the NDK build.
 4. **Milestone 4 — container**: glibc userland + PRoot (or a leaner chroot-free
@@ -210,8 +252,9 @@ Each milestone is expected to land as its own set of commits with the CI green.
 Unit tests are plain JVM tests (no emulator needed) and run on every CI build:
 
 * `GameInstallScannerTest` — detection of `Vampire.exe`, case-insensitive
-  matching, depth limit, hidden folders, unreadable/missing roots, and
-  complete-over-partial preference.
+  matching, depth limit, hidden folders, unreadable/missing roots, revoked
+  access, complete-over-partial preference, and detection inside an external
+  (Storage Access Framework) folder using a fake storage backend.
 * `LaunchReadinessTest` — the launch gate: blocked with no files, blocked with an
   incomplete install, blocked until **every** runtime component is ready, and
   allowed only when both conditions hold.
