@@ -168,10 +168,16 @@ jobs:
             exit 0
           fi
 
-          # Fallback: surface the "What went wrong" section as run annotations.
+          # Fallback: surface the most useful lines as run annotations
+          # (compile errors first, then Gradle's own summary). Runners show a
+          # limited number of annotations, so keep the list short.
           for LOG in gradle-assemble.log gradle-lint.log gradle-tests.log; do
             [ -s "$LOG" ] || continue
-            awk '/What went wrong:/{flag=1} flag' "$LOG" | head -n 12 | while IFS= read -r line; do
+            {
+              grep -E "^e: " "$LOG" | head -n 8
+              awk '/What went wrong:/{flag=1} flag' "$LOG" | head -n 8
+              grep -E "FAILED" "$LOG" | head -n 6
+            } | while IFS= read -r line; do
               line="${line//'%'/'%25'}"
               line="${line//$'\r'/'%0D'}"
               echo "::error title=$LOG::$line"
