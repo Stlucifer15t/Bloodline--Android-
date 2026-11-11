@@ -1,10 +1,12 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
 }
 
 /** Keystore used when no BLOODLINE_STORE_FILE / keystore.properties entry says otherwise. */
-const val DEFAULT_KEYSTORE_FILE = "bloodline-release.jks"
+val DEFAULT_KEYSTORE_FILE = "bloodline-release.jks"
 
 // Release signing credentials.
 //
