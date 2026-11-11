@@ -5,8 +5,9 @@
 A standalone Android launcher for **Vampire: The Masquerade – Bloodlines** (PC, 2004).
 
 This repository is the foundation of that project: a real, buildable Android
-application with a native dark launcher UI, a working game-file importer, and a
-modular architecture that the Windows compatibility runtime will be plugged into.
+application with a native dark launcher UI, a working game-file importer, a
+proven path for running bundled native binaries, and a modular architecture that
+the Windows compatibility runtime will be plugged into.
 
 > **Read this first.** The launcher does **not** run the game yet. No Wine,
 > Box86/Box64, graphics or audio component has been integrated. The Launch button
@@ -20,8 +21,9 @@ modular architecture that the Windows compatibility runtime will be plugged into
 
 **Build: green.** Every push and pull request runs unit tests, Android lint and a
 debug APK build on GitHub Actions; the APK is published as a downloadable
-artifact. Verified configuration: Temurin JDK 17 + Gradle 8.13 + AGP 8.13 on
-`ubuntu-latest`, producing a ~3.1 MB debug APK (`app-debug.apk`, API 26+).
+artifact. Verified configuration: Temurin JDK 17 + Gradle 8.13 + AGP 8.13 +
+NDK 27 (CMake 3.22.1) on `ubuntu-latest`, producing a ~3.3 MB debug APK
+(`app-debug.apk`, API 26+) that contains the native probe for every ABI.
 
 | Area | State |
 | --- | --- |
@@ -29,6 +31,7 @@ artifact. Verified configuration: Temurin JDK 17 + Gradle 8.13 + AGP 8.13 on
 | Dark launcher UI (native Android views) | ✅ Done |
 | Game installation detection (app storage + picked folder) | ✅ Done |
 | Import game files (Storage Access Framework) | ✅ Done |
+| Native execution probe (NDK, W^X-safe) | ✅ Done |
 | Graphics / audio configuration sections | ⚠️ Placeholders (values shown, not wired) |
 | Wine (Windows API) | ❌ Not integrated |
 | Box86 / Box64 (x86 → ARM64) | ❌ Not integrated |
@@ -63,8 +66,9 @@ The runtime will be built into this APK in later milestones.
 | `minSdk` | 26 | Android 8.0, the practical floor for an ARM64 userland |
 | `targetSdk` / `compileSdk` | 36 | Current stable |
 | Java | 17 | Required by AGP 8.13 |
+| Native | NDK 27 (27.0.12077973), CMake 3.22.1 | Needed to prove bundled native binaries can run (see below) |
 | UI | XML layouts + custom drawables on AppCompat | Full control of the theme; no stock Material look |
-| Dependencies | `androidx.appcompat`, `androidx.core-ktx`, JUnit | Nothing else is needed yet |
+| Dependencies | `androidx.appcompat`, `androidx.core-ktx`, `androidx.documentfile`, JUnit | Nothing else is needed yet |
 
 ---
 
@@ -78,12 +82,16 @@ The runtime will be built into this APK in later milestones.
 │   └── src/
 │       ├── main/
 │       │   ├── AndroidManifest.xml
+│       │   ├── cpp/
+│       │   │   ├── CMakeLists.txt               # builds the probe as libnative_probe.so
+│       │   │   └── native_probe.c               # capability check, incl. the W^X test
 │       │   ├── java/com/bloodline/android/
 │       │   │   ├── BloodlinesApplication.kt     # forces night mode
 │       │   │   ├── game/
 │       │   │   │   ├── GameInstall.kt           # what a detected install is
 │       │   │   │   └── GameInstallScanner.kt    # read-only, depth-limited scan
 │       │   │   ├── runtime/
+│       │   │   │   ├── NativeProbe.kt           # runs + interprets the native probe
 │       │   │   │   ├── RuntimeComponent.kt      # status model
 │       │   │   │   ├── RuntimeRegistry.kt       # catalogue of the whole stack
 │       │   │   │   └── LaunchReadiness.kt       # the launch gate
@@ -217,6 +225,14 @@ environment. These are the findings that shape the plan.
 | Audio | Wine ALSA → AAudio / OpenSL ES | LGPL / Apache | Bloodlines uses DirectSound3D. WineD3D's ALSA backend maps onto a small bridge to AAudio; no Android-specific blocker identified, but nothing is written yet. |
 | Storage | App-specific external storage | — | Chosen because it needs no storage permission and works under Android 11+ scoped storage. SAF import comes later. |
 
+**Native hosting is now proven, not assumed.** A C executable built with the NDK
+is renamed `libnative_probe.so`, packaged in the APK, extracted by Android into
+the executable `nativeLibraryDir`, and run by the launcher at startup. CI blocks
+the build if it goes missing. The same probe copies itself into writable app
+storage and tries to execute the copy, so each device reports whether W^X blocks
+it (`exec-from-app-data: DENIED` is the expected result on Android 10+). Tap the
+*Native execution* row in the launcher to see the raw output.
+
 **Conclusion: feasible, but not quick.** Every layer above exists as open source
 and is already proven by Winlator (LGPL-2.1) on Adreno devices. The hard part is
 Mali-G52: the Turnip/DXVK fast path is unavailable, so the project has to rely on
@@ -233,8 +249,10 @@ milestone, or the next.**
 2. **Milestone 2 — importer** *(done)*: pick the game folder through the Storage
    Access Framework, verify the expected layout, persist the access grant, and
    read the files in place instead of copying them.
-3. **Milestone 3 — native hosting**: prove the W^X-safe `lib*.so` execution path
-   end to end with a trivial native binary, then add the NDK build.
+3. **Milestone 3 — native hosting** *(done)*: the NDK builds a probe executable
+   that ships as `libnative_probe.so`; the app runs it from the APK's library
+   folder and reports the measured ABI, API level and W^X verdict. This is the
+   mechanism Wine and Box86 will be launched through.
 4. **Milestone 4 — container**: glibc userland + PRoot (or a leaner chroot-free
    approach) booting inside the app.
 5. **Milestone 5 — Wine + Box86**: Wine arm64 build with a 32-bit prefix, Box86
@@ -258,9 +276,14 @@ Unit tests are plain JVM tests (no emulator needed) and run on every CI build:
 * `LaunchReadinessTest` — the launch gate: blocked with no files, blocked with an
   incomplete install, blocked until **every** runtime component is ready, and
   allowed only when both conditions hold.
-* `RuntimeRegistryTest` — unique component ids, full stack coverage, and a
+* `NativeProbeTest` — how probe output is interpreted: success marker, ABI/API
+  summary, and the W^X verdict. (Launching the probe itself needs a device.)
+* `RuntimeRegistryTest` — unique component ids, full stack coverage, a
   deliberate guard that fails if any component claims to be `READY` before it is
-  actually integrated.
+  actually integrated, and that a measured status flows into the registry.
+
+CI additionally fails the build if `libnative_probe.so` is not packaged under
+`lib/<abi>/` in the APK, because without it no native runtime can ever start.
 
 ---
 
