@@ -37,7 +37,10 @@ object LaunchReadiness {
         install: GameInstall?,
         components: List<RuntimeComponent> = RuntimeRegistry.components(),
     ): LaunchState {
-        val runtimeReady = components.all { it.status == IntegrationStatus.READY }
+        // An empty registry means "nothing is integrated", not "everything is
+        // ready": all {} would return true for an empty list and open the gate.
+        val runtimeReady = components.isNotEmpty() &&
+            components.all { it.status == IntegrationStatus.READY }
 
         return when {
             install == null -> LaunchState.Blocked(BlockReason.NO_GAME_FILES)

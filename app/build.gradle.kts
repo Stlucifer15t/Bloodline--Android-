@@ -62,6 +62,18 @@ android {
     }
 }
 
+tasks.withType<Test>().configureEach {
+    testLogging {
+        // Print the name and reason of every failing test to the console so CI
+        // can show it directly instead of hiding it in an HTML report.
+        events("failed")
+        showExceptions = true
+        showCauses = true
+        showStackTraces = false
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.SHORT
+    }
+}
+
 dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)

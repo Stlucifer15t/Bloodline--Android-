@@ -147,6 +147,8 @@ jobs:
                 awk '/^\* What went wrong:/{flag=1} flag' "$LOG" | head -n 40
                 echo "..."
                 grep -m 8 "Caused by:" "$LOG"
+                echo "--- failing tests ---"
+                grep -E "FAILED|tests completed" "$LOG" | head -n 30
                 echo '```'
                 echo "</details>"
                 echo ""
