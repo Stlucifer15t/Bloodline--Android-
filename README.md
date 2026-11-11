@@ -137,6 +137,41 @@ The workflow runs on every push to `main`, on every pull request targeting
 
 ---
 
+## Signing a release APK
+
+**No keystore or password is stored in this repository.** The build reads the
+signing configuration from, in order:
+
+1. `keystore.properties` in the project root (gitignored), and/or
+2. environment variables — `BLOODLINE_STORE_FILE`, `BLOODLINE_STORE_PASSWORD`,
+   `BLOODLINE_KEY_ALIAS`, `BLOODLINE_KEY_PASSWORD`.
+
+If neither is present, `./gradlew assembleRelease` still succeeds and produces
+an *unsigned* APK (useful for checking that the build works, not installable).
+
+For CI, store the keystore as a base64 secret and run the workflow with
+**Also build and upload a signed release APK** ticked:
+
+```bash
+keytool -genkeypair -v -keystore bloodline-release.jks -keyalg RSA -keysize 2048 \
+        -validity 10000 -alias bloodline
+
+base64 -w0 bloodline-release.jks > keystore.b64
+
+gh secret set BLOODLINE_KEYSTORE_BASE64      < keystore.b64
+gh secret set BLOODLINE_KEY_ALIAS           -b "bloodline"
+gh secret set BLOODLINE_STORE_PASSWORD      -b "<store password>"
+gh secret set BLOODLINE_KEY_PASSWORD        -b "<key password>"
+```
+
+> ⚠️ **A signing key that has ever been committed must be treated as
+> compromised.** Earlier work on this repository committed a keystore *and* its
+> password. If that key is ever used for a public release, generate a fresh one
+> with the command above and update the secrets — anyone with repository access
+> can otherwise sign apps with that identity.
+
+---
+
 ## Game files
 
 **The game is not included, and this project will never include it.**

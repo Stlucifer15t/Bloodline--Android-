@@ -3,6 +3,24 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+// Release signing credentials.
+//
+// They are never stored in the repository: they come from a gitignored
+// keystore.properties file, or from environment variables (which is how CI
+// injects repository secrets). See README "Signing a release APK".
+val keystoreProperties: Properties by lazy {
+    Properties().apply {
+        val propertiesFile = rootProject.file("keystore.properties")
+        if (propertiesFile.exists()) {
+            propertiesFile.inputStream().use { load(it) }
+        }
+    }
+}
+
+fun signingProperty(name: String): String? =
+    keystoreProperties.getProperty(name)
+        ?: System.getenv("BLOODLINE_${name.replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase()}")
+
 android {
     namespace = "com.bloodline.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -36,10 +54,10 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("bloodline-release.jks")
-            storePassword = "07063510088Aa"
-            keyAlias = "bloodline"
-            keyPassword = "07063510088Aa"
+            storeFile = file(signingProperty("storeFile") ?: "bloodline-release.jks")
+            storePassword = signingProperty("storePassword").orEmpty()
+            keyAlias = signingProperty("keyAlias").orEmpty()
+            keyPassword = signingProperty("keyPassword").orEmpty()
         }
     }
 
@@ -49,7 +67,11 @@ android {
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            // Sign only when a keystore and its credentials were actually
+            // supplied; otherwise build an unsigned APK instead of failing.
+            signingConfig = signingConfigs.getByName("release").takeIf { config ->
+                config.storeFile?.exists() == true && !config.storePassword.isNullOrEmpty()
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

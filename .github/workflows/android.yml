@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      build_release:
+        description: 'Also build and upload a signed release APK'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -111,6 +116,40 @@ jobs:
           retention-days: 30
           compression-level: 6
 
+      - name: Provide the release signing key
+        # The keystore is never committed. When a release build is requested it
+        # comes from the BLOODLINE_KEYSTORE_BASE64 repository secret.
+        if: ${{ inputs.build_release }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BLOODLINE_KEYSTORE_BASE64 }}
+          KEYSTORE_ALIAS: ${{ secrets.BLOODLINE_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_ALIAS" ]; then
+            echo "::error::Release builds need the BLOODLINE_KEYSTORE_BASE64 and BLOODLINE_KEY_ALIAS secrets"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > app/bloodline-release.jks
+
+      - name: Build release APK
+        id: assemble_release
+        if: ${{ inputs.build_release }}
+        env:
+          BLOODLINE_STORE_PASSWORD: ${{ secrets.BLOODLINE_STORE_PASSWORD }}
+          BLOODLINE_KEY_ALIAS: ${{ secrets.BLOODLINE_KEY_ALIAS }}
+          BLOODLINE_KEY_PASSWORD: ${{ secrets.BLOODLINE_KEY_PASSWORD }}
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease 2>&1 | tee gradle-release.log
+
+      - name: Upload release APK
+        if: ${{ inputs.build_release }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bloodlines-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -138,7 +177,7 @@ jobs:
             echo ""
             echo "Failing run: $RUN_URL"
             echo ""
-            for LOG in gradle-tests.log gradle-lint.log gradle-assemble.log; do
+            for LOG in gradle-tests.log gradle-lint.log gradle-assemble.log gradle-release.log; do
               if [ -s "$LOG" ]; then
                 echo "<details open><summary><code>$LOG</code> — what went wrong</summary>"
                 echo ""
@@ -171,7 +210,7 @@ jobs:
           # Fallback: surface the most useful lines as run annotations
           # (compile errors first, then Gradle's own summary). Runners show a
           # limited number of annotations, so keep the list short.
-          for LOG in gradle-assemble.log gradle-lint.log gradle-tests.log; do
+          for LOG in gradle-release.log gradle-assemble.log gradle-lint.log gradle-tests.log; do
             [ -s "$LOG" ] || continue
             {
               grep -E "^e: " "$LOG" | head -n 8
