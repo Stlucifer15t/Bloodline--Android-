@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
+import androidx.core.view.isVisible
 import com.bloodline.android.BuildConfig
 import com.bloodline.android.R
 import com.bloodline.android.databinding.ActivityMainBinding
@@ -192,8 +193,13 @@ class MainActivity : AppCompatActivity() {
         )
         applyStatus(binding.installStatus, status)
 
-        binding.installNote.text = found?.rootDirectory?.absolutePath
-            ?: getString(R.string.install_detail_not_found)
+        // Only show the resolved path; when nothing was found the detail line
+        // above already explains what to do.
+        val installPath = found?.rootDirectory?.absolutePath
+        binding.installNote.isVisible = installPath != null
+        if (installPath != null) {
+            binding.installNote.text = installPath
+        }
 
         updateLaunchState()
     }
