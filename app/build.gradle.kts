@@ -3,6 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+/** Keystore used when no BLOODLINE_STORE_FILE / keystore.properties entry says otherwise. */
+const val DEFAULT_KEYSTORE_FILE = "bloodline-release.jks"
+
 // Release signing credentials.
 //
 // They are never stored in the repository: they come from a gitignored
@@ -53,11 +56,19 @@ android {
     }
 
     signingConfigs {
+        // Populated only when a keystore and its credentials were actually
+        // supplied, so AGP never sees a half configured config (a keystore
+        // with no password) during an ordinary build.
         create("release") {
-            storeFile = file(signingProperty("storeFile") ?: "bloodline-release.jks")
-            storePassword = signingProperty("storePassword").orEmpty()
-            keyAlias = signingProperty("keyAlias").orEmpty()
-            keyPassword = signingProperty("keyPassword").orEmpty()
+            val store = file(signingProperty("storeFile") ?: DEFAULT_KEYSTORE_FILE)
+            val password = signingProperty("storePassword")
+
+            if (store.exists() && !password.isNullOrEmpty()) {
+                storeFile = store
+                storePassword = password
+                keyAlias = signingProperty("keyAlias").orEmpty()
+                keyPassword = signingProperty("keyPassword").orEmpty()
+            }
         }
     }
 

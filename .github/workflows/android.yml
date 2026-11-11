@@ -163,15 +163,19 @@ jobs:
           retention-days: 7
 
       - name: Report the failure
+        if: failure()
+        continue-on-error: true
         # Two channels, because a CI error is useless if nobody can read it:
         # 1. a comment on the pull request, and
         # 2. annotations on the failing run.
-        if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # Reporting must never mask the real failure: a grep that finds
+          # nothing must not abort this step.
+          set +e
           {
             echo "### :x: Android CI failed"
             echo ""
