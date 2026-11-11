@@ -11,6 +11,13 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
+ * Builds the location of a child folder. Top level on purpose: the fake
+ * backends below are nested (static) classes, so a member extension of the
+ * test class would not be in scope inside them.
+ */
+private fun GameLocation.child(name: String) = copy(displayPath = "$displayPath/$name")
+
+/**
  * JVM tests for game detection. No Android framework is involved, even for the
  * Storage Access Framework case: that is covered by [FakeFolder], which behaves
  * like a document tree without needing a device.
@@ -55,8 +62,6 @@ class GameInstallScannerTest {
         override fun entries(): List<StorageEntry> =
             throw SecurityException("Permission revoked")
     }
-
-    private fun GameLocation.child(name: String) = copy(displayPath = "$displayPath/$name")
 
     private fun externalFolder(
         vararg nodes: Node,
