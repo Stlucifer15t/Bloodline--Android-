@@ -14,77 +14,117 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:paddingTop="30dp"
-        android:paddingBottom="40dp">
+        android:paddingStart="@dimen/screen_gutter"
+        android:paddingEnd="@dimen/screen_gutter"
+        android:paddingTop="@dimen/screen_gutter_top"
+        android:paddingBottom="@dimen/screen_gutter_bottom">
 
         <!-- ============================ Branding ============================ -->
         <ImageView
-            android:layout_width="52dp"
-            android:layout_height="52dp"
+            android:layout_width="@dimen/brand_emblem_size"
+            android:layout_height="@dimen/brand_emblem_size"
             android:layout_gravity="center_horizontal"
-            android:contentDescription="@string/app_name"
+            android:contentDescription="@string/brand_emblem_description"
             android:src="@drawable/ic_emblem" />
 
+        <!--
+            The wordmark is the widest single line in the app. match_parent plus
+            uniform auto-shrink means it scales itself down on a narrow phone
+            instead of running off the edge; "BLOODLINES" at 30sp with wide
+            letter spacing does not fit a 320dp screen.
+        -->
         <TextView
             style="@style/Text.Brand"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="@dimen/space_4"
+            android:autoSizeMaxTextSize="@dimen/text_brand"
+            android:autoSizeMinTextSize="@dimen/text_brand_min"
+            android:autoSizeStepGranularity="1sp"
+            android:autoSizeTextType="uniform"
+            android:gravity="center_horizontal"
             android:text="@string/brand_title" />
 
         <View
-            android:layout_width="136dp"
-            android:layout_height="1dp"
+            android:layout_width="@dimen/brand_rule_width"
+            android:layout_height="@dimen/divider_height"
             android:layout_gravity="center_horizontal"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="@dimen/space_4"
             android:background="@drawable/divider_blood" />
 
-        <TextView
-            style="@style/Text.BrandSub"
+        <ImageView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="@dimen/space_3"
+            android:contentDescription="@null"
+            android:src="@drawable/ornament_lozenge" />
+
+        <TextView
+            style="@style/Text.BrandSub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_3"
+            android:gravity="center_horizontal"
             android:text="@string/brand_subtitle" />
 
         <TextView
             style="@style/Text.Stage"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="5dp"
+            android:layout_marginTop="@dimen/space_1"
+            android:gravity="center_horizontal"
             android:text="@string/brand_stage" />
 
         <!-- ======================= Game installation ======================== -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="30dp"
+            android:layout_marginTop="@dimen/space_8"
             android:background="@drawable/card_surface_accent"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/card_padding">
 
-            <TextView
-                style="@style/Text.SectionTitle"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/section_game_installation" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="@dimen/row_icon_size"
+                    android:layout_height="@dimen/row_icon_size"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_card_install" />
+
+                <TextView
+                    style="@style/Text.SectionTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/row_icon_gap"
+                    android:layout_weight="1"
+                    android:text="@string/section_game_installation" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider_height"
+                android:layout_marginTop="@dimen/space_3"
+                android:background="@color/hairline_strong" />
 
             <include
                 android:id="@+id/installStatus"
                 layout="@layout/view_status_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" />
+                android:layout_marginTop="@dimen/space_2" />
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="6dp"
-                android:background="@color/ink_600" />
+                android:layout_height="@dimen/divider_height"
+                android:layout_marginTop="@dimen/space_2"
+                android:background="@color/hairline" />
 
             <include
                 android:id="@+id/installExpected"
@@ -103,7 +143,7 @@
                 style="@style/Text.Caption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="@dimen/space_2"
                 android:text="@string/install_detail_not_found" />
 
             <TextView
@@ -111,7 +151,7 @@
                 style="@style/Text.Caption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="@dimen/space_1"
                 android:textColor="@color/ash_faint"
                 android:visibility="gone"
                 tools:text="Verified 11/11/26, 14:02 · 12,480 entries examined"
@@ -126,7 +166,7 @@
                 android:id="@+id/importProgress"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="@dimen/space_4"
                 android:orientation="vertical"
                 android:visibility="gone"
                 tools:visibility="visible">
@@ -143,25 +183,18 @@
                     style="@style/Text.RowDetail"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
+                    android:layout_marginTop="@dimen/space_2"
                     tools:text="Scanning folders…\n12,480 entries examined · 34 folders" />
 
             </LinearLayout>
 
             <Button
                 android:id="@+id/importButton"
+                style="@style/Widget.Bloodlines.OutlineButton"
                 android:layout_width="match_parent"
-                android:layout_height="46dp"
-                android:layout_marginTop="14dp"
-                android:background="@drawable/btn_outline"
-                android:letterSpacing="0.18"
-                android:minHeight="0dp"
-                android:stateListAnimator="@null"
-                android:text="@string/import_game_files"
-                android:textAllCaps="true"
-                android:textColor="@color/button_text"
-                android:textSize="12.5sp"
-                android:textStyle="bold" />
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_4"
+                android:text="@string/import_game_files" />
 
         </LinearLayout>
 
@@ -169,29 +202,45 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/card_gap"
             android:background="@drawable/card_surface"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/card_padding">
 
-            <TextView
-                style="@style/Text.SectionTitle"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/section_runtime" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="@dimen/row_icon_size"
+                    android:layout_height="@dimen/row_icon_size"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_card_runtime" />
+
+                <TextView
+                    style="@style/Text.SectionTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/row_icon_gap"
+                    android:layout_weight="1"
+                    android:text="@string/section_runtime" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider_height"
+                android:layout_marginTop="@dimen/space_3"
+                android:background="@color/hairline_strong" />
 
             <include
                 android:id="@+id/runtimeOverall"
                 layout="@layout/view_status_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="6dp"
-                android:background="@color/ink_600" />
+                android:layout_marginTop="@dimen/space_2" />
 
             <include
                 android:id="@+id/runtimeNative"
@@ -237,9 +286,9 @@
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="6dp"
-                android:background="@color/ink_600" />
+                android:layout_height="@dimen/divider_height"
+                android:layout_marginTop="@dimen/space_2"
+                android:background="@color/hairline" />
 
             <!-- Measured on the device, not assumed. Tap for the full report. -->
             <include
@@ -250,46 +299,75 @@
 
         </LinearLayout>
 
-        <!-- ============================ Graphics =========================== -->
+        <!-- ============================== Display =========================== -->
+        <!--
+            Every value in this panel is either measured from the device or
+            computed from a stored choice. The old version of this card showed a
+            hard-coded "1280 × 720", which looked like a setting and was
+            nothing of the kind.
+        -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/card_gap"
             android:background="@drawable/card_surface"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/card_padding">
 
-            <TextView
-                style="@style/Text.SectionTitle"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/section_graphics" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="@dimen/row_icon_size"
+                    android:layout_height="@dimen/row_icon_size"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_section_display" />
+
+                <TextView
+                    style="@style/Text.SectionTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/row_icon_gap"
+                    android:layout_weight="1"
+                    android:text="@string/section_display" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider_height"
+                android:layout_marginTop="@dimen/space_3"
+                android:background="@color/hairline_strong" />
 
             <include
-                android:id="@+id/graphicsRenderer"
+                android:id="@+id/displayPanel"
                 layout="@layout/view_config_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp" />
+                android:layout_marginTop="@dimen/space_2" />
 
             <include
-                android:id="@+id/graphicsWrapper"
+                android:id="@+id/displayGameResolution"
                 layout="@layout/view_config_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
             <include
-                android:id="@+id/graphicsResolution"
+                android:id="@+id/displayRenderResolution"
                 layout="@layout/view_config_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
             <TextView
+                android:id="@+id/displayNote"
                 style="@style/Text.Caption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/graphics_placeholder_note" />
+                android:layout_marginTop="@dimen/space_4"
+                android:text="@string/display_panel_note" />
 
         </LinearLayout>
 
@@ -297,26 +375,48 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/card_gap"
             android:background="@drawable/card_surface"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/card_padding">
 
-            <TextView
-                style="@style/Text.SectionTitle"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/section_audio" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="@dimen/row_icon_size"
+                    android:layout_height="@dimen/row_icon_size"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_section_audio" />
+
+                <TextView
+                    style="@style/Text.SectionTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/row_icon_gap"
+                    android:layout_weight="1"
+                    android:text="@string/section_audio" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider_height"
+                android:layout_marginTop="@dimen/space_3"
+                android:background="@color/hairline_strong" />
 
             <include
-                android:id="@+id/audioBackend"
+                android:id="@+id/audioVolume"
                 layout="@layout/view_config_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp" />
+                android:layout_marginTop="@dimen/space_2" />
 
             <include
-                android:id="@+id/audioOutput"
+                android:id="@+id/audioBackend"
                 layout="@layout/view_config_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
@@ -325,8 +425,8 @@
                 style="@style/Text.Caption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/audio_placeholder_note" />
+                android:layout_marginTop="@dimen/space_4"
+                android:text="@string/audio_panel_note" />
 
         </LinearLayout>
 
@@ -334,66 +434,103 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="@dimen/card_gap"
             android:background="@drawable/card_surface"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="@dimen/card_padding">
 
-            <TextView
-                style="@style/Text.SectionTitle"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/section_diagnostics" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="@dimen/row_icon_size"
+                    android:layout_height="@dimen/row_icon_size"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_section_diagnostics" />
+
+                <TextView
+                    style="@style/Text.SectionTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/row_icon_gap"
+                    android:layout_weight="1"
+                    android:text="@string/section_diagnostics" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider_height"
+                android:layout_marginTop="@dimen/space_3"
+                android:background="@color/hairline_strong" />
 
             <include
                 android:id="@+id/diagnosticsStatus"
                 layout="@layout/view_status_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp" />
+                android:layout_marginTop="@dimen/space_2" />
 
             <TextView
                 android:id="@+id/diagnosticsDetail"
                 style="@style/Text.Caption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="@dimen/space_2"
                 android:text="@string/diagnostics_none_detail" />
 
+            <!--
+                Four buttons in one row left ~64dp each on a 360dp phone, which
+                is below what "GENERATE" needs at 11sp bold — and the style's
+                singleLine then cut the label off rather than wrapping it.
+                Two rows of two, with wrap_content heights, cannot clip.
+            -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="@dimen/space_4"
+                android:baselineAligned="false"
                 android:orientation="horizontal">
 
                 <Button
                     android:id="@+id/diagnosticsGenerateButton"
-                    style="@style/Widget.Bloodlines.SmallButton"
+                    style="@style/Widget.Bloodlines.CompactButton"
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:text="@string/diagnostics_generate" />
 
                 <Button
                     android:id="@+id/diagnosticsSaveButton"
-                    style="@style/Widget.Bloodlines.SmallButton"
+                    style="@style/Widget.Bloodlines.CompactButton"
                     android:layout_width="0dp"
-                    android:layout_marginStart="6dp"
+                    android:layout_marginStart="@dimen/space_2"
                     android:layout_weight="1"
                     android:text="@string/diagnostics_save" />
 
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_2"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
                 <Button
                     android:id="@+id/diagnosticsShareButton"
-                    style="@style/Widget.Bloodlines.SmallButton"
+                    style="@style/Widget.Bloodlines.CompactButton"
                     android:layout_width="0dp"
-                    android:layout_marginStart="6dp"
                     android:layout_weight="1"
                     android:text="@string/diagnostics_share" />
 
                 <Button
                     android:id="@+id/diagnosticsDeleteButton"
-                    style="@style/Widget.Bloodlines.SmallButton"
+                    style="@style/Widget.Bloodlines.CompactButton"
                     android:layout_width="0dp"
-                    android:layout_marginStart="6dp"
+                    android:layout_marginStart="@dimen/space_2"
                     android:layout_weight="1"
                     android:text="@string/diagnostics_delete" />
 
@@ -404,43 +541,29 @@
         <!-- ============================== Launch =========================== -->
         <Button
             android:id="@+id/launchButton"
+            style="@style/Widget.Bloodlines.PrimaryButton"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="26dp"
-            android:background="@drawable/btn_primary"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_8"
             android:enabled="false"
-            android:letterSpacing="0.26"
-            android:minHeight="0dp"
-            android:stateListAnimator="@null"
-            android:text="@string/launch_game"
-            android:textAllCaps="true"
-            android:textColor="@color/button_text"
-            android:textSize="14.5sp"
-            android:textStyle="bold" />
+            android:text="@string/launch_game" />
 
         <TextView
             android:id="@+id/launchHint"
             style="@style/Text.Caption"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="@dimen/space_3"
             android:gravity="center"
             android:text="@string/launch_locked_no_runtime" />
 
         <Button
             android:id="@+id/settingsButton"
+            style="@style/Widget.Bloodlines.OutlineButton"
             android:layout_width="match_parent"
-            android:layout_height="46dp"
-            android:layout_marginTop="16dp"
-            android:background="@drawable/btn_outline"
-            android:letterSpacing="0.18"
-            android:minHeight="0dp"
-            android:stateListAnimator="@null"
-            android:text="@string/open_settings"
-            android:textAllCaps="true"
-            android:textColor="@color/button_text"
-            android:textSize="12.5sp"
-            android:textStyle="bold" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_4"
+            android:text="@string/open_settings" />
 
         <!-- ============================== Footer =========================== -->
         <TextView
@@ -448,7 +571,7 @@
             style="@style/Text.Caption"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="30dp"
+            android:layout_marginTop="@dimen/space_8"
             android:gravity="center"
             tools:text="Milestone 1 · foundation build 0.1.0" />
 
@@ -456,7 +579,7 @@
             style="@style/Text.Caption"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="@dimen/space_3"
             android:gravity="center"
             android:text="@string/footer_disclaimer"
             android:textColor="@color/ash_faint" />

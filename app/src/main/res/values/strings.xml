@@ -10,7 +10,6 @@
     <!-- Section titles -->
     <string name="section_game_installation">Game Installation</string>
     <string name="section_runtime">Compatibility Runtime</string>
-    <string name="section_graphics">Graphics</string>
     <string name="section_audio">Audio</string>
     <string name="section_diagnostics">Diagnostics</string>
 
@@ -56,21 +55,26 @@
     <string name="status_unclean">Unclean exit</string>
     <string name="status_none">None</string>
 
-    <!-- Graphics card (placeholder) -->
-    <string name="graphics_renderer">Renderer</string>
-    <string name="graphics_renderer_value">VirGL (planned)</string>
-    <string name="graphics_wrapper">DirectX wrapper</string>
-    <string name="graphics_wrapper_value">WineD3D (planned)</string>
-    <string name="graphics_resolution">Resolution</string>
-    <string name="graphics_resolution_value">1280 × 720</string>
-    <string name="graphics_placeholder_note">Placeholder. These controls become active once the graphics translation layer is integrated.</string>
+    <!--
+        Display panel.
 
-    <!-- Audio card (placeholder) -->
-    <string name="audio_backend">Backend</string>
-    <string name="audio_backend_value">ALSA bridge (planned)</string>
-    <string name="audio_output">Output</string>
-    <string name="audio_output_value">AAudio / OpenSL ES</string>
-    <string name="audio_placeholder_note">Placeholder. Audio routing is wired up together with the runtime container.</string>
+        The first row is measured from the device. The other two are computed
+        from the stored choices in Settings → Display. Nothing here is a
+        hard-coded number, and the note says plainly that none of it is applied
+        to the launcher today.
+    -->
+    <string name="display_panel_label">Display</string>
+    <string name="display_game_resolution_label">Game resolution</string>
+    <string name="display_render_resolution_label">Internal render</string>
+    <string name="display_panel_note">The display size is measured on this device. The resolution and scaling below come from your choices in Settings → Display; they are stored for the runtime and change nothing on the launcher today.</string>
+    <string name="display_unmeasured">Not measured</string>
+    <string name="display_reduced_suffix">That is larger than this screen can show, so it has been reduced to %1$s \u2014 the biggest size that fits.</string>
+
+    <!-- Audio panel: volume is real, routing is not. -->
+    <string name="audio_volume_label">Music volume</string>
+    <string name="audio_backend_label">Backend</string>
+    <string name="audio_panel_note">Volume is the Android music stream and is applied today. Routing through the runtime\'s audio bridge is not built yet, so the backend above is only stored.</string>
+    <string name="audio_volume_unset">Unchanged</string>
 
     <!-- Diagnostics -->
     <string name="diagnostics_none">No reports yet</string>
@@ -127,12 +131,18 @@
     <string name="settings_back">Back To Launcher</string>
     <string name="settings_reset_done">Settings restored to defaults</string>
 
-    <string name="settings_section_display">Display &amp; Screen</string>
-    <string name="settings_section_performance">Frame Rate &amp; Performance</string>
-    <string name="settings_section_graphics">Renderer &amp; Graphics</string>
+    <!--
+        Six sections: General, Display, Performance, Audio, Input, Diagnostics.
+        The split matters more than the order — a section is either something
+        the launcher can do today or something the runtime will own later, and
+        no row is filed under the wrong one.
+    -->
+    <string name="settings_section_general">General</string>
+    <string name="settings_section_display">Display</string>
+    <string name="settings_section_performance">Performance</string>
     <string name="settings_section_audio">Audio</string>
-    <string name="settings_section_controls">Controls &amp; HUD</string>
-    <string name="settings_section_storage">Runtime &amp; Storage</string>
+    <string name="settings_section_input">Input</string>
+    <string name="settings_section_diagnostics">Diagnostics</string>
 
     <!-- Reasons a row is disabled. Shown verbatim so nothing is faked. -->
     <string name="setting_needs_runtime">Needs the compatibility runtime. The value is remembered and will be applied as soon as the runtime exists.</string>
@@ -140,16 +150,30 @@
     <string name="setting_unsupported">Not offered: nothing in the stack exposes this control.</string>
 
     <!-- Display -->
-    <string name="setting_native_resolution">Native resolution</string>
-    <string name="setting_native_resolution_detail">Render at the display\'s own pixel size instead of a fixed internal size.</string>
-    <string name="setting_resolution_scale">Resolution scaling</string>
-    <string name="setting_resolution_scale_detail">Renders below the native size and upscales. 50% is the cheapest option for a Mali GPU; 100% is the sharpest.</string>
-    <string name="setting_aspect_ratio">Aspect ratio</string>
-    <string name="setting_aspect_ratio_detail">How a 4:3 game frame is fitted onto a taller phone screen.</string>
+    <string name="setting_display_detected">Detected display</string>
+    <string name="setting_display_detected_detail">Measured from this device right now: the panel size Android reports, and its refresh rate. Nothing here is estimated.</string>
+    <string name="setting_display_resolution">Display resolution</string>
+    <string name="setting_display_resolution_detail">The size the game surface is presented at — what the Windows desktop inside the container is told the screen is. Native follows the real display.</string>
+    <string name="setting_custom_resolution">Custom resolution</string>
+    <string name="setting_custom_resolution_detail">Used when Display resolution is Custom. Clamped to %1$d–%2$d wide and %3$d–%4$d tall, and reduced further if this screen cannot show it.</string>
+    <string name="setting_render_scale">Internal render resolution</string>
+    <string name="setting_render_scale_detail">How much of the display resolution the game actually renders, before the GPU scales it back up. The cheapest setting on a Mali-G52, and the one that buys the most frame rate.</string>
+    <string name="setting_custom_scale">Custom scaling</string>
+    <string name="setting_custom_scale_detail">Used when Internal render resolution is Custom. Accepted between %1$d%% and %2$d%%.</string>
+    <string name="setting_render_plan">Resulting render size</string>
+    <string name="setting_render_plan_detail">What the two settings above add up to on this display: the presented size, then the size actually rendered. Computed from the measured display, not assumed.</string>
+    <string name="setting_aspect_mode">Aspect ratio</string>
+    <string name="setting_aspect_mode_detail">How a frame whose shape differs from the display is fitted to it. Preserve keeps the game\'s own shape; Fit shows all of it; Stretch fills the screen and distorts.</string>
+    <string name="setting_letterbox">Letterbox / pillarbox</string>
+    <string name="setting_letterbox_detail">Fill the area a preserved frame cannot cover with black bars, instead of cropping the frame to fill the screen.</string>
+    <string name="setting_fullscreen_scaling">Fullscreen scaling</string>
+    <string name="setting_fullscreen_scaling_detail">Scale a frame smaller than the display up to fill it, instead of showing it pixel for pixel and centred.</string>
+    <string name="setting_reset_graphics">Reset graphics settings</string>
+    <string name="setting_reset_graphics_detail">Forgets the display resolution, scaling, fitting and renderer choices in this build and restores their defaults. Unlike the rows above, this works today.</string>
+    <string name="settings_graphics_reset_done">Graphics settings restored</string>
+    <string name="setting_orientation_note">The launcher follows your device\'s rotation. The game runs landscape regardless: that is a requirement of the game, not a preference, so no setting here can change it.</string>
     <string name="setting_immersive">Immersive mode</string>
     <string name="setting_immersive_detail">Hide the system bars while the app is in front. Applied immediately.</string>
-    <string name="setting_orientation">Screen orientation</string>
-    <string name="setting_orientation_detail">Applied to the launcher now, and to the game surface once it exists.</string>
     <string name="setting_keep_awake">Keep screen awake</string>
     <string name="setting_keep_awake_detail">Stops the screen from dimming while the app is in front.</string>
     <string name="setting_ui_scale">Interface scale</string>
@@ -211,16 +235,30 @@
     <string name="install_status_not_found">No game files found</string>
     <string name="install_status_unknown">Not verified yet</string>
     <string name="setting_runtime_version">Runtime version</string>
+    <string name="setting_native_probe">Native execution</string>
+    <string name="setting_native_probe_detail">Whether an executable shipped inside this APK can run here, from the last probe on this device. Re-run it from the launcher if the app version changed.</string>
+    <string name="setting_device_capability">Device capability</string>
+    <string name="setting_device_capability_detail">ptrace, seccomp, executing from memory and 32-bit support, all measured here rather than assumed.</string>
+    <string name="probe_not_measured">Not measured yet</string>
     <string name="setting_value_not_set">Not set</string>
     <string name="setting_value_unavailable">Unavailable</string>
 
     <!-- Shared values -->
-    <string name="value_portrait">Portrait</string>
-    <string name="value_landscape">Landscape</string>
-    <string name="value_follow_device">Follow device</string>
-    <string name="value_preserve">Preserve 4:3</string>
-    <string name="value_fit">Fit (no crop)</string>
+    <string name="value_native">Native (%1$d × %2$d)</string>
+    <string name="value_custom">Custom</string>
+    <string name="value_preserve">Preserve</string>
+    <string name="value_fit">Fit to screen</string>
     <string name="value_stretch">Stretch to fill</string>
+    <string name="value_render_plan">%1$s → %2$s</string>
+    <string name="value_scaled">%1$d%% (%2$s)</string>
+
+    <!-- Number entry dialogs for the custom display values. -->
+    <string name="dialog_width">Width (px)</string>
+    <string name="dialog_height">Height (px)</string>
+    <string name="dialog_percent">Percent (%1$d\u2013%2$d)</string>
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="dialog_number_out_of_range">Enter a value between %1$d and %2$d.</string>
     <string name="value_small">Small (85%)</string>
     <string name="value_normal">Normal (100%)</string>
     <string name="value_large">Large (115%)</string>

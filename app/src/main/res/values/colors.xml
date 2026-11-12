@@ -1,15 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- Surfaces: near-black with a violet cast, like a dimly lit haven. -->
+    <!--
+        Surfaces: near-black with a faint violet cast, like a dimly lit haven.
+        Nothing here is pure #000 — a true black makes the deep red accent look
+        pasted on instead of lit from behind.
+    -->
+    <color name="ink_950">#FF040306</color>
     <color name="ink_900">#FF07050A</color>
     <color name="ink_850">#FF0B0710</color>
-    <color name="ink_800">#FF120C16</color>
+    <color name="ink_800">#FF110C16</color>
     <color name="ink_700">#FF1A1220</color>
     <color name="ink_600">#FF241A2C</color>
     <color name="ink_500">#FF33243D</color>
 
-    <!-- Blood: the accent family. -->
+    <!--
+        Hairline: the 1dp line that separates panels and rows.
+        Softer than ink_600 so a divider reads as a seam, not as a border.
+    -->
+    <color name="hairline">#FF1C1424</color>
+    <color name="hairline_strong">#FF2A1E34</color>
+
+    <!-- Blood: the accent family. Used for actions and headings only. -->
+    <color name="blood_900">#FF22060A</color>
     <color name="blood_800">#FF3D060C</color>
     <color name="blood_700">#FF5C0A10</color>
     <color name="blood_600">#FF8A0F18</color>

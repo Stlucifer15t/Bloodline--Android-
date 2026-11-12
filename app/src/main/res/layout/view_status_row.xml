@@ -1,43 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    One row of a status card: a coloured dot, a title, a detail line and a
+    One row of a status panel: a coloured dot, a title, a detail line and a
     status chip. Everything is populated from a RuntimeComponent at runtime so
     the UI stays driven by the runtime registry instead of hardcoded strings.
+
+    The chip is capped at chip_max_width. Unbounded, "NOT INTEGRATED" grew to
+    over a third of the row on a narrow phone and left the title and detail
+    with almost no space; capped, it wraps to two lines instead.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
+    android:minHeight="@dimen/row_min_height_compact"
     android:orientation="horizontal"
-    android:paddingTop="9dp"
-    android:paddingBottom="9dp">
+    android:paddingTop="@dimen/row_padding_vertical_compact"
+    android:paddingBottom="@dimen/row_padding_vertical_compact">
 
     <View
         android:id="@+id/statusDot"
-        android:layout_width="8dp"
-        android:layout_height="8dp"
+        android:layout_width="@dimen/dot_size"
+        android:layout_height="@dimen/dot_size"
         android:background="@drawable/shape_dot" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="10dp"
+        android:layout_marginStart="@dimen/dot_gap"
+        android:layout_marginEnd="@dimen/row_column_gap"
         android:layout_weight="1"
         android:orientation="vertical">
 
         <TextView
             android:id="@+id/rowTitle"
             style="@style/Text.RowTitle"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
         <TextView
             android:id="@+id/rowDetail"
             style="@style/Text.RowDetail"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp" />
+            android:layout_marginTop="@dimen/space_0" />
 
     </LinearLayout>
 
@@ -46,6 +51,7 @@
         style="@style/Text.StatusChip"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:maxWidth="@dimen/chip_max_width"
         android:background="@drawable/chip_status" />
 
 </LinearLayout>

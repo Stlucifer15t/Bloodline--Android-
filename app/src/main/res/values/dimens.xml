@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One spacing scale for the whole launcher.
+
+    Every gap, padding and minimum size in the app comes from here. Before this
+    file existed each layout picked its own numbers (6/8/10/11/12/14/16/20/26/30
+    dp), which is why columns in different cards never lined up.
+-->
+<resources>
+
+    <dimen name="space_0">2dp</dimen>
+    <dimen name="space_1">4dp</dimen>
+    <dimen name="space_2">6dp</dimen>
+    <dimen name="space_3">8dp</dimen>
+    <dimen name="space_4">12dp</dimen>
+    <dimen name="space_5">16dp</dimen>
+    <dimen name="space_6">20dp</dimen>
+    <dimen name="space_7">24dp</dimen>
+    <dimen name="space_8">28dp</dimen>
+    <dimen name="space_9">32dp</dimen>
+    <dimen name="space_10">40dp</dimen>
+
+    <!-- Screen edge gutters. -->
+    <dimen name="screen_gutter">20dp</dimen>
+    <dimen name="screen_gutter_top">28dp</dimen>
+    <dimen name="screen_gutter_bottom">32dp</dimen>
+
+    <!--
+        Cards and panels.
+        The radius is deliberately small: a stack of six 14dp rounded boxes
+        reads as a template, not as a designed screen.
+    -->
+    <dimen name="card_radius">8dp</dimen>
+    <dimen name="card_padding">16dp</dimen>
+    <dimen name="card_gap">14dp</dimen>
+
+    <!-- Rows. Heights are minimums, never fixed, so a wrapped label can grow. -->
+    <dimen name="row_min_height">48dp</dimen>
+    <dimen name="row_min_height_compact">40dp</dimen>
+    <dimen name="row_padding_vertical">12dp</dimen>
+    <dimen name="row_padding_vertical_compact">9dp</dimen>
+    <dimen name="row_icon_size">20dp</dimen>
+    <dimen name="row_icon_gap">12dp</dimen>
+    <dimen name="row_column_gap">12dp</dimen>
+
+    <!--
+        How wide the value column of a settings row may grow. The title keeps
+        everything else, and the detail line below gets the full width, so a
+        long value can never push the row's own text out of the card.
+    -->
+    <dimen name="row_value_max_width">168dp</dimen>
+
+    <!--
+        Two column rows: the text column always keeps 62% of the width and the
+        value column 38%. Weighting both sides is what stops a long value
+        ("Vampire.exe + Vampire/ data folder") from squeezing its own label to
+        nothing, which is what wrap_content on the value used to do.
+    -->
+
+    <!--
+        Buttons: a floor, never a ceiling. Fixed 46dp/56dp heights clipped their
+        own labels as soon as the in-app interface scale grew the text.
+    -->
+    <dimen name="button_min_height">48dp</dimen>
+    <dimen name="button_min_height_compact">44dp</dimen>
+    <dimen name="button_padding_horizontal">12dp</dimen>
+    <dimen name="button_padding_vertical">12dp</dimen>
+
+    <!-- Text sizes: one typographic scale, no one-off values. -->
+    <dimen name="text_brand">30sp</dimen>
+    <dimen name="text_brand_min">24sp</dimen>
+    <dimen name="text_screen_title">22sp</dimen>
+    <dimen name="text_section">11sp</dimen>
+    <dimen name="text_row_title">14sp</dimen>
+    <dimen name="text_value">12.5sp</dimen>
+    <dimen name="text_detail">11.5sp</dimen>
+    <dimen name="text_caption">11sp</dimen>
+    <dimen name="text_chip">9.5sp</dimen>
+    <dimen name="text_button">12sp</dimen>
+    <dimen name="text_button_primary">14sp</dimen>
+    <dimen name="text_small">9sp</dimen>
+
+    <!-- Fixed decoration. -->
+    <dimen name="dot_size">8dp</dimen>
+    <dimen name="dot_gap">12dp</dimen>
+    <dimen name="divider_height">1dp</dimen>
+    <dimen name="header_rule_height">2dp</dimen>
+    <dimen name="header_rule_width">28dp</dimen>
+
+    <!-- Brand block. -->
+    <dimen name="brand_emblem_size">48dp</dimen>
+    <dimen name="brand_rule_width">132dp</dimen>
+
+    <!--
+        The widest a status chip may grow. "NOT INTEGRATED" wraps to two lines
+        inside this instead of pushing the row's text off the screen.
+    -->
+    <dimen name="chip_max_width">84dp</dimen>
+
+</resources>

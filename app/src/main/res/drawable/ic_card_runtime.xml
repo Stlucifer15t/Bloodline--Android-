@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stacked layers: the Windows compatibility runtime. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="@color/blood_500"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,3.2l8.6,4.4 -8.6,4.4 -8.6,-4.4z" />
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="@color/blood_500"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M3.4,12.4l8.6,4.4 8.6,-4.4M3.4,16.6l8.6,4.4 8.6,-4.4" />
+</vector>
