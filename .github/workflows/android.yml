@@ -204,6 +204,9 @@ jobs:
                 awk '/^\* What went wrong:/{flag=1} flag' "$LOG" | head -n 40
                 echo "..."
                 grep -m 8 "Caused by:" "$LOG"
+                echo "--- compile errors ---"
+                grep -E "^e: " "$LOG" | head -n 25
+                grep -E "error:|Unresolved reference" "$LOG" | head -n 15
                 echo "--- failing tests ---"
                 grep -E "FAILED|tests completed" "$LOG" | head -n 30
                 echo '```'
@@ -219,6 +222,18 @@ jobs:
               fi
             done
           } > failure-report.md
+
+          # Gradle points at an HTML report nobody can read from a comment, so
+          # the assertion messages come straight out of the JUnit XML.
+          {
+            echo "<details open><summary>Failing unit tests</summary>"
+            echo ""
+            echo '```'
+            python3 .github/scripts/summarise-test-failures.py
+            echo '```'
+            echo "</details>"
+            echo ""
+          } >> failure-report.md
 
           if [ -n "${PR_NUMBER:-}" ] && gh pr comment "$PR_NUMBER" --body-file failure-report.md; then
             echo "Posted the failure report to pull request #$PR_NUMBER"

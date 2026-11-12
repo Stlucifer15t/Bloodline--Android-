@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What may be shared out of the app through a content URI.
+
+    Only the reports folder is exposed, so a share or save action can never
+    reach anything else the app has stored.
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-files-path
+        name="reports"
+        path="diagnostics/reports/" />
+    <files-path
+        name="internal-reports"
+        path="diagnostics/reports/" />
+</paths>

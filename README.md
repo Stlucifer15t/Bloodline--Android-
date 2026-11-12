@@ -32,7 +32,13 @@ NDK 27 (CMake 3.22.1) on `ubuntu-latest`, producing a ~3.3 MB debug APK
 | Game installation detection (app storage + picked folder) | ✅ Done |
 | Import game files (Storage Access Framework) | ✅ Done |
 | Native execution probe (NDK, W^X-safe) | ✅ Done |
-| Graphics / audio configuration sections | ⚠️ Placeholders (values shown, not wired) |
+| Settings system (typed, persisted, honest) | ✅ Done |
+| Launcher settings that take effect now (immersive, orientation, keep-awake, brightness, UI scale, FPS overlay, master volume) | ✅ Done |
+| Runtime-dependent settings (FPS limit, resolution scaling, VSync, renderer, audio backend) | ⏳ Stored, shown disabled with the reason |
+| Background import with real progress | ✅ Done |
+| Cached install metadata (fast reopen, no needless rescan) | ✅ Done |
+| Automatic crash reports (session detection, ZIP, save/share/delete) | ✅ Done |
+| Touch HUD / on-screen controls | ❌ Does not exist yet |
 | Wine (Windows API) | ❌ Not integrated |
 | Box86 / Box64 (x86 → ARM64) | ❌ Not integrated |
 | Rootless container / glibc userland | ❌ Not integrated |
@@ -87,16 +93,38 @@ The runtime will be built into this APK in later milestones.
 │       │   │   └── native_probe.c               # capability check, incl. the W^X test
 │       │   ├── java/com/bloodline/android/
 │       │   │   ├── BloodlinesApplication.kt     # forces night mode
+│       │   │   ├── diagnostics/
+│       │   │   │   ├── SessionTracker.kt        # marker file: was the last exit clean?
+│       │   │   │   ├── LogcatRecorder.kt        # continuous capture of this app's log
+│       │   │   │   ├── DeviceInfo.kt / GpuInfo.kt # hardware, Android, GPU facts
+│       │   │   │   ├── ReportBuilder.kt         # the readable text inside a report
+│       │   │   │   ├── ReportArchive.kt         # writes, rotates and deletes ZIP reports
+│       │   │   │   └── DiagnosticsManager.kt    # ties the above together
 │       │   │   ├── game/
 │       │   │   │   ├── GameInstall.kt           # what a detected install is
-│       │   │   │   └── GameInstallScanner.kt    # read-only, depth-limited scan
+│       │   │   │   ├── GameInstallScanner.kt    # read-only, depth-limited scan
+│       │   │   │   ├── InstallScan.kt           # real stages and counts, no fake percentages
+│       │   │   │   └── GameInstallRepository.kt # background scans + remembered results
 │       │   │   ├── runtime/
 │       │   │   │   ├── NativeProbe.kt           # runs + interprets the native probe
+│       │   │   │   ├── NativeProbeCache.kt      # the device answer, not a session answer
 │       │   │   │   ├── RuntimeComponent.kt      # status model
 │       │   │   │   ├── RuntimeRegistry.kt       # catalogue of the whole stack
 │       │   │   │   └── LaunchReadiness.kt       # the launch gate
-│       │   │   ├── storage/StorageLocations.kt   # app-specific folders only
-│       │   │   └── ui/MainActivity.kt
+│       │   │   ├── settings/
+│       │   │   │   ├── SettingsModels.kt        # every setting and its values
+│       │   │   │   ├── SettingsStore.kt         # persistence (SharedPreferences / in-memory)
+│       │   │   │   ├── SettingsRepository.kt    # typed access, defaults, listeners
+│       │   │   │   ├── SettingsApplier.kt       # what can be applied right now
+│       │   │   │   ├── UiScaleApplier.kt        # context wrapping for the UI scale
+│       │   │   │   ├── FpsMeter.kt              # counts real Choreographer frames
+│       │   │   │   └── AudioVolumeController.kt # the real Android music-stream volume
+│       │   │   ├── storage/
+│       │   │   │   ├── StorageLocations.kt      # app-specific folders + the picked folder
+│       │   │   │   └── InstallMetadata.kt       # the remembered scan result
+│       │   │   └── ui/
+│       │   │       ├── MainActivity.kt          # the launcher
+│       │   │       └── SettingsActivity.kt      # the settings screen
 │       │   └── res/                             # theme, colours, drawables, layouts
 │       └── test/java/com/bloodline/android/     # JVM unit tests
 ├── gradle/libs.versions.toml                    # single source of dependency versions
@@ -242,6 +270,75 @@ milestone, or the next.**
 
 ---
 
+## Settings
+
+`docs/SETTINGS.md` is the full map: every setting, what it controls, and whether
+it actually works. The short version:
+
+* Everything is persisted through `SettingsRepository`, so a setting survives
+  restarting the app and the device.
+* A control is only enabled when it does something. Immersive mode, orientation,
+  keep-awake, window brightness, UI scale, the frame-rate overlay and master
+  volume all take effect immediately.
+* The frame-rate overlay counts real `Choreographer` frames, so it shows the
+  refresh rate Android is actually delivering rather than a stored number.
+  Master volume drives the real `STREAM_MUSIC` volume.
+* Frame limiting, resolution scaling, VSync, frame pacing, the renderer choice
+  and the audio backend are stored but shown **disabled with the reason**: they
+  cannot do anything until the Windows compatibility runtime exists, and a
+  switch that pretends otherwise is worse than no switch.
+* The touch HUD (joystick, quick slots, button layout, transparency) does not
+  exist yet, so there is nothing to customise. Those controls arrive with the
+  input layer milestone rather than as editors wired to nothing.
+
+The launcher's appearance is unchanged; the settings screen is reached from the
+*Settings* button under the launch button.
+
+---
+
+## Importing game files
+
+Scanning a game folder over the Storage Access Framework costs one binder call
+per entry, and an install holds thousands of files. It therefore runs on a
+background thread and reports what it is genuinely doing: the current stage plus
+the number of entries actually examined. There is no percentage, because the
+total is unknowable until the walk ends.
+
+The result is remembered (`InstallMetadata`), so reopening the launcher shows
+the verified status instantly instead of walking the tree again. A rescan
+happens only when there is a reason: nothing remembered yet, the result is older
+than 24 hours, the picked folder changed, the app was updated, or you pressed
+*Re-scan for game files* in Settings. A scan that found nothing is only
+repeated when it was cheap, so an expensive one cannot make reopening slow
+again. No game file is ever written, moved or deleted.
+
+---
+
+## Diagnostics and crash reports
+
+The launcher notices when it did not get to close properly:
+
+* A marker file is written when a session starts and removed only when you close
+  the app deliberately. Android gives no "app exited" callback and runs nothing
+  at all when a process is killed, so a surviving marker is the only reliable
+  evidence of an unclean exit. Rotating the screen is not a new session.
+* A report is a dated ZIP in
+  `Android/data/com.bloodline.android/files/diagnostics/reports/`, containing a
+  readable `summary.txt`, the device facts (including the GPU, read from an EGL
+  context), the runtime statuses, your settings, the install status, the session
+  record, the native probe output and the captured logs.
+* Logs are captured continuously, because since Android 7 an app can only read
+  its own log lines and a dead process cannot be asked for anything afterwards.
+* The newest ten reports are kept. The launcher card can generate one on demand,
+  save it wherever you like, share it through Android's share sheet, or delete
+  it.
+* Only this app's own output goes in: no account, no password, no personal
+  files. The game folder path is left out on purpose, because a path can contain
+  your name.
+* Closing the app normally produces no report.
+
+---
+
 ## Roadmap
 
 1. **Milestone 1 — foundation** *(done)*: Android module, launcher UI,
@@ -281,6 +378,22 @@ Unit tests are plain JVM tests (no emulator needed) and run on every CI build:
 * `RuntimeRegistryTest` — unique component ids, full stack coverage, a
   deliberate guard that fails if any component claims to be `READY` before it is
   actually integrated, and that a measured status flows into the registry.
+* `SettingsRepositoryTest` — defaults, persistence across repository instances,
+  clamped ranges, corrupted stored values falling back to defaults, change
+  listeners, reset, and that the experimental renderer is never the default.
+* `GameInstallRepositoryTest` — that a fresh cached result skips the scan
+  entirely, that a stale one, a different folder or a new app version forces a
+  rescan, that only one scan runs at a time, that progress reports real counts,
+  that a failed scan is reported with its reason, and that an expensive
+  not-found scan is not repeated on every start.
+* `SessionTrackerTest` — a clean close leaves nothing behind, a crash is
+  classified as a crash, a background stop is *not* called a crash, and a
+  rotation of the screen is not a new session.
+* `ReportArchiveTest` — the archive is a real ZIP the user can open, logs land
+  under `logs/`, the classification survives in the file name, old reports are
+  rotated away, and delete works.
+* `ReportBuilderTest` — the wording of a report: a background stop is never
+  called a crash, a report made on request says so, and durations read well.
 
 CI additionally fails the build if `libnative_probe.so` is not packaged under
 `lib/<abi>/` in the APK, because without it no native runtime can ever start.

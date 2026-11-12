@@ -106,6 +106,48 @@
                 android:layout_marginTop="6dp"
                 android:text="@string/install_detail_not_found" />
 
+            <TextView
+                android:id="@+id/installVerified"
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/ash_faint"
+                android:visibility="gone"
+                tools:text="Verified 11/11/26, 14:02 · 12,480 entries examined"
+                tools:visibility="visible" />
+
+            <!--
+                Real import progress: a genuine stage name plus the number of
+                entries actually examined. There is no percentage, because the
+                scanner cannot know the total before it has listed everything.
+            -->
+            <LinearLayout
+                android:id="@+id/importProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <ProgressBar
+                    android:id="@+id/importProgressBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:indeterminate="true" />
+
+                <TextView
+                    android:id="@+id/importProgressText"
+                    style="@style/Text.RowDetail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    tools:text="Scanning folders…\n12,480 entries examined · 34 folders" />
+
+            </LinearLayout>
+
             <Button
                 android:id="@+id/importButton"
                 android:layout_width="match_parent"
@@ -275,6 +317,77 @@
 
         </LinearLayout>
 
+        <!-- ============================ Diagnostics ======================= -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/card_surface"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                style="@style/Text.SectionTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/section_diagnostics" />
+
+            <include
+                android:id="@+id/diagnosticsStatus"
+                layout="@layout/view_status_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp" />
+
+            <TextView
+                android:id="@+id/diagnosticsDetail"
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/diagnostics_none_detail" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/diagnosticsGenerateButton"
+                    style="@style/Widget.Bloodlines.SmallButton"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:text="@string/diagnostics_generate" />
+
+                <Button
+                    android:id="@+id/diagnosticsSaveButton"
+                    style="@style/Widget.Bloodlines.SmallButton"
+                    android:layout_width="0dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:text="@string/diagnostics_save" />
+
+                <Button
+                    android:id="@+id/diagnosticsShareButton"
+                    style="@style/Widget.Bloodlines.SmallButton"
+                    android:layout_width="0dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:text="@string/diagnostics_share" />
+
+                <Button
+                    android:id="@+id/diagnosticsDeleteButton"
+                    style="@style/Widget.Bloodlines.SmallButton"
+                    android:layout_width="0dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:text="@string/diagnostics_delete" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
         <!-- ============================== Launch =========================== -->
         <Button
             android:id="@+id/launchButton"
@@ -300,6 +413,21 @@
             android:layout_marginTop="10dp"
             android:gravity="center"
             android:text="@string/launch_locked_no_runtime" />
+
+        <Button
+            android:id="@+id/settingsButton"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/btn_outline"
+            android:letterSpacing="0.18"
+            android:minHeight="0dp"
+            android:stateListAnimator="@null"
+            android:text="@string/open_settings"
+            android:textAllCaps="true"
+            android:textColor="@color/button_text"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
 
         <!-- ============================== Footer =========================== -->
         <TextView

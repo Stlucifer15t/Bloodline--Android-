@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backing plate for the frame-rate readout so it stays legible over the UI. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <solid android:color="#D907050A" />
+
+    <stroke
+        android:width="1dp"
+        android:color="#FF8A0F18" />
+
+    <corners android:radius="4dp" />
+
+</shape>
