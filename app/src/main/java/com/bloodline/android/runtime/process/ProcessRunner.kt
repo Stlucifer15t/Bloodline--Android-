@@ -125,26 +125,30 @@ class ProcessRunner : CommandRunner {
             is Failed -> "did not start: $reason"
         }
 
-        /**
-         * What killed a process, for the handful of signals that turn up here.
-         *
-         * A crash is reported by signal, not by exit code: 139 means SIGSEGV,
-         * and "crashed with SIGSEGV" is the sentence that tells someone the
-         * program touched memory it did not own, where "exited with 139"
-         * tells them nothing.
-         */
-        private val SIGNAL_NAMES = mapOf(
-            2 to "SIGINT",
-            4 to "SIGILL",
-            5 to "SIGTRAP",
-            6 to "SIGABRT",
-            7 to "SIGBUS",
-            8 to "SIGFPE",
-            9 to "SIGKILL",
-            11 to "SIGSEGV",
-            13 to "SIGPIPE",
-            15 to "SIGTERM",
-        )
+        companion object {
+
+            /**
+             * What killed a process, for the handful of signals that turn up
+             * here.
+             *
+             * A crash is reported by signal, not by exit code: 139 means
+             * SIGSEGV, and "crashed with SIGSEGV" is the sentence that tells
+             * someone the program touched memory it did not own, where
+             * "exited with 139" tells them nothing.
+             */
+            private val SIGNAL_NAMES = mapOf(
+                2 to "SIGINT",
+                4 to "SIGILL",
+                5 to "SIGTRAP",
+                6 to "SIGABRT",
+                7 to "SIGBUS",
+                8 to "SIGFPE",
+                9 to "SIGKILL",
+                11 to "SIGSEGV",
+                13 to "SIGPIPE",
+                15 to "SIGTERM",
+            )
+        }
     }
 
     /** A process that is still running, so a caller can stop it. */
