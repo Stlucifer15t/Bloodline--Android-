@@ -111,7 +111,7 @@ jobs:
         # with a --tests filter, which replaces the results directory with a
         # single file.
         if: always()
-        run: python3 tools/test-summary.py | tee -a "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/test-summary.py app/build/test-summary.md | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Verify the upstream packages really download and unpack
         # The only step that fetches the actual Wine and WoW64 packages from
@@ -164,6 +164,14 @@ jobs:
             cat "$REPORT"
             echo '```'
           } > /tmp/upstream-comment.md
+          # The test count travels with it: the job summary is the only other
+          # place it appears, and that is not readable from outside the run.
+          if [ -s app/build/test-summary.md ]; then
+            {
+              echo
+              cat app/build/test-summary.md
+            } >> /tmp/upstream-comment.md
+          fi
           gh pr comment 8 --body-file /tmp/upstream-comment.md
 
       - name: Run Android lint

@@ -22,12 +22,11 @@ RESULTS = os.path.join("app", "build", "test-results", "testDebugUnitTest")
 COUNTS = ("tests", "failures", "errors", "skipped")
 
 
-def main() -> int:
+def report() -> str:
     files = sorted(glob.glob(os.path.join(RESULTS, "*.xml")))
     if not files:
-        print("### Unit tests\n")
-        print("No JUnit reports were written to `%s`." % RESULTS)
-        return 0
+        return "### Unit tests\n\nNo JUnit reports were written to `%s`." % RESULTS
+
 
     totals = dict.fromkeys(COUNTS, 0)
     for path in files:
@@ -35,18 +34,32 @@ def main() -> int:
         for key in COUNTS:
             totals[key] += int(root.get(key) or 0)
 
-    print("### Unit tests\n")
-    print("| report files | tests | failures | errors | skipped |")
-    print("| --- | --- | --- | --- | --- |")
-    print(
-        "| {files} | {tests} | {failures} | {errors} | {skipped} |".format(
-            files=len(files),
-            tests=totals["tests"],
-            failures=totals["failures"],
-            errors=totals["errors"],
-            skipped=totals["skipped"],
-        )
+    return "\n".join(
+        [
+            "### Unit tests",
+            "",
+            "| report files | tests | failures | errors | skipped |",
+            "| --- | --- | --- | --- | --- |",
+            "| {files} | {tests} | {failures} | {errors} | {skipped} |".format(
+                files=len(files),
+                tests=totals["tests"],
+                failures=totals["failures"],
+                errors=totals["errors"],
+                skipped=totals["skipped"],
+            ),
+        ]
     )
+
+
+def main() -> int:
+    markdown = report()
+    print(markdown)
+
+    # Optionally to a file as well, so a later step can attach it to something a
+    # human reads. The job summary is not reachable from outside the run.
+    if len(sys.argv) > 1:
+        with open(sys.argv[1], "w") as handle:
+            handle.write(markdown + "\n")
     return 0
 
 
