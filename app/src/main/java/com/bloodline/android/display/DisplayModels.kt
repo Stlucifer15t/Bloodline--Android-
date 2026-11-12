@@ -69,10 +69,15 @@ enum class RenderResolution(val width: Int, val height: Int, val isCustom: Boole
 
         val PRESETS: List<RenderResolution> get() = RenderResolution.entries.filter { !it.isCustom }
 
-        fun fromSize(width: Int, height: Int): RenderResolution? =
-            RenderResolution.entries.firstOrNull {
+        fun fromSize(width: Int, height: Int): RenderResolution? {
+            // 0 x 0 is Native's internal sentinel, not a size anyone can
+            // choose, so it must not resolve to the NATIVE preset: a caller
+            // asking "which fixed preset is this?" would get a nonsense answer.
+            if (width <= 0 || height <= 0) return null
+            return RenderResolution.entries.firstOrNull {
                 !it.isCustom && it.width == width && it.height == height
             }
+        }
     }
 }
 
