@@ -72,7 +72,17 @@ class RuntimeAcquisition(
         pending.forEachIndexed { index, pack ->
             if (isCancelled()) return Outcome.Cancelled
 
-            manager.install(pack, abi) { progress ->
+            // The State install() returns is the only record of *why* a package
+            // failed, so it is the thing that gets reported.
+            //
+            // This used to re-read the install marker instead and report
+            // whatever state it found. No failure writes a marker, so every
+            // failure — a refused socket, a wrong length, a bad checksum, a
+            // broken archive — came back as the same uninformative
+            // "The package did not install (Missing)", and the reason install()
+            // had actually worked out was thrown away. On a phone that is the
+            // whole difference between "the download was refused" and "no idea".
+            val result = manager.install(pack, abi) { progress ->
                 onProgress(
                     Progress(
                         pack = pack,
@@ -84,14 +94,22 @@ class RuntimeAcquisition(
                 )
             }
 
-            when (val final = manager.stateOf(pack)) {
+            when (result) {
                 is RuntimePackageManager.State.Installed -> downloaded++
+
                 is RuntimePackageManager.State.Failed ->
-                    return Outcome.Failed(pack.name, final.reason)
-                else ->
+                    return Outcome.Failed(pack.name, result.reason)
+
+                is RuntimePackageManager.State.Stale ->
                     return Outcome.Failed(
                         pack.name,
-                        "The package did not install (${final::class.simpleName}).",
+                        "${result.installed} is installed but ${result.expected} is required.",
+                    )
+
+                RuntimePackageManager.State.Missing ->
+                    return Outcome.Failed(
+                        pack.name,
+                        "The package was not installed and gave no reason.",
                     )
             }
         }
