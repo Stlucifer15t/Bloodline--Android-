@@ -14,8 +14,9 @@ import java.security.MessageDigest
  *
  * 1. refuse a package for the wrong ABI;
  * 2. download to a **staging** file, never straight into place;
- * 3. verify the SHA-256 where upstream publishes one, and **record** when it
- *    does not — never silently skip the mention;
+ * 3. confirm the download is the length upstream publishes, then verify the
+ *    SHA-256 where upstream publishes one, and **record** when it does not —
+ *    never silently skip the mention;
  * 4. extract, with path traversal refused;
  * 5. only then write the install marker.
  *
@@ -165,13 +166,15 @@ class RuntimePackageManager(
     }
 
     /**
-     * Checks the digest when upstream publishes one.
+     * Checks the digest when upstream publishes one, having first checked the
+     * length.
      *
      * @return true when the digest matched, false when there was none to check.
      *         Returning false rather than true is the point: the caller records
      *         the package as *unverified*, not as verified.
      */
     private fun verify(pack: RuntimePackage, file: File): Boolean {
+        checkExpectedLength(pack, file)
         val expected = pack.sha256 ?: return false
         val actual = sha256(file)
         if (!actual.equals(expected, ignoreCase = true)) {
@@ -181,6 +184,39 @@ class RuntimePackageManager(
             )
         }
         return true
+    }
+
+    /**
+     * Confirms the staged download is the length upstream publishes.
+     *
+     * Upstream publishes no digest for these assets, so a digest cannot be the
+     * check — but it *does* publish the byte length of every release asset,
+     * and the catalogue records those exact numbers. Checking the length
+     * catches the two failures that actually happen on a mobile connection,
+     * and neither is caught otherwise:
+     *
+     * * **A truncated transfer.** An interrupted download leaves a short file
+     *   that looks like a package until something tries to read it.
+     * * **An error page served instead of the file.** A redirect to HTML
+     *   succeeds at the HTTP level, so without this the failure surfaces as an
+     *   unreadable archive rather than as a failed download.
+     *
+     * It also does the job a pin exists to do. Every URL in the catalogue
+     * points at one specific release, so if upstream ever re-uploads an asset
+     * of a different size, refusing is the correct answer rather than an
+     * inconvenience: the pin says what was asked for, and this says whether
+     * that is what arrived.
+     *
+     * @throws SecurityException when the file is not the published length. The
+     *         caller deletes the staged file, so a bad download never survives.
+     */
+    internal fun checkExpectedLength(pack: RuntimePackage, file: File) {
+        val actual = file.length()
+        if (actual == pack.sizeBytes) return
+        throw SecurityException(
+            "${pack.name} arrived the wrong length: ${pack.sizeBytes} bytes were " +
+                "published for it, and $actual arrived. The download was discarded.",
+        )
     }
 
     private fun sha256(file: File): String {

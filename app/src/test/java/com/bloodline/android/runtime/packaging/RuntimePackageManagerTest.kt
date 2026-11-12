@@ -1,7 +1,9 @@
 package com.bloodline.android.runtime.packaging
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -121,5 +123,57 @@ class RuntimePackageManagerTest {
         // Wine is ~269 MB of a ~277 MB total. Failing on it immediately is far
         // kinder than failing after everything else has downloaded.
         assertEquals(RuntimePackageCatalog.WINE_ARM64EC, required.first())
+    }
+
+    @Test
+    fun `a download that is not the published length is refused`() {
+        // No checksum is published for these assets, so the length is the only
+        // check there is. Both failures it catches are ordinary on a phone: an
+        // interrupted transfer, and a redirect that serves HTML instead.
+        val (_, manager) = manager("runtime-length")
+        val wine = RuntimePackageCatalog.WINE_ARM64EC
+
+        val truncated = temporary.newFile("truncated.bin")
+        truncated.writeBytes(ByteArray(4096))
+
+        try {
+            manager.checkExpectedLength(wine, truncated)
+            fail("A 4 KB file must not pass for a 226 MB package.")
+        } catch (error: SecurityException) {
+            assertTrue(error.message!!.contains("226178252"))
+            assertTrue(error.message!!.contains("4096"))
+        }
+    }
+
+    @Test
+    fun `a download of exactly the published length is accepted`() {
+        val (_, manager) = manager("runtime-length-ok")
+
+        val exact = temporary.newFile("exact.bin")
+        exact.writeBytes(ByteArray(8))
+        val pack = RuntimePackageCatalog.WOWBOX64.copy(sizeBytes = 8L)
+
+        manager.checkExpectedLength(pack, exact)
+    }
+
+    @Test
+    fun `every pinned package records the length upstream actually publishes`() {
+        // These five numbers were read back out of the GitHub release API, not
+        // copied from a changelog. They are load-bearing: the length check
+        // refuses a download that does not match, so a wrong number here would
+        // refuse a perfectly good file.
+        val published = mapOf(
+            "wine-11.3-arm64ec" to 226_178_252L,
+            "wine-11.3-x86_64" to 207_779_756L,
+            "wowbox64" to 1_029_612L,
+            "box64-bionic" to 5_103_225L,
+            "fex-2611" to 2_078_400L,
+        )
+
+        RuntimePackageCatalog.ALL.forEach { pack ->
+            val expected = published[pack.id]
+            assertNotNull("${pack.id} is not a pinned package", expected)
+            assertEquals("${pack.id} has the wrong published length", expected, pack.sizeBytes)
+        }
     }
 }

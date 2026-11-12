@@ -345,9 +345,16 @@ Each step refuses rather than guesses:
 
 * **Staging before extracting.** A partial download is never mistaken for a
   package, so the launch gate cannot be fooled by an interrupted transfer.
-* **Checksums recorded, not implied.** Upstream publishes no SHA-256 for these
-  assets, so packages install as *unverified* and say so. Treating "no checksum"
-  as "no problem" would be the easy implementation and the dishonest one.
+* **Verified as far as the truth allows.** Upstream publishes no SHA-256 for
+  these assets, so packages install as *unverified* and say so — treating "no
+  checksum" as "no problem" would be the easy implementation and the dishonest
+  one. It does publish each asset's byte length, and the catalogue records
+  those exact numbers (read back out of the release API, not copied from a
+  changelog), so the download is checked against its published length. That
+  catches the two failures that actually happen on a phone: a truncated
+  transfer, and a redirect that serves HTML instead. It also does what a pin
+  is for — if upstream ever re-uploads an asset of a different size, refusing
+  is the correct answer.
 * **Path traversal refused.** Archive entry names are resolved against the
   target and anything that escapes aborts the whole extraction. A package is a
   third-party file fetched over the network.
@@ -387,8 +394,10 @@ Everything above compiles and is unit tested. Nothing has been executed. In
 particular:
 
 * No Wine process has been started; no prefix has been created.
-* The pinned package URLs have been read from the release API but never
-  downloaded — this sandbox cannot reach GitHub's release-asset host.
+* Each pinned asset has been confirmed to exist at its pinned release tag,
+  with exactly the byte length the catalogue records — checked through the
+  release API. **No package has been downloaded**: this sandbox cannot reach
+  GitHub's release-asset host, and nothing here has run on a device.
 * `.wcp` is a private extension for a tar archive compressed with XZ **or**
   Zstandard. Which one a given package uses is not stated anywhere we can read,
   so both are supported and the format is detected from the bytes.
