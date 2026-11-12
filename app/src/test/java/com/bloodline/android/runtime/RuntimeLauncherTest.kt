@@ -104,8 +104,10 @@ class RuntimeLauncherTest {
     @Test
     fun `the WoW64 layer is named in the environment`() {
         // The whole mechanism that lets a 32-bit executable run.
-        assertEquals("wowbox64.dll", plan().environment["HODLL"])
-        assertEquals("win64", plan().environment["WINEARCH"])
+        val environment = plan().environment
+
+        assertEquals("wowbox64.dll", environment["HODLL"])
+        assertEquals("win64", environment["WINEARCH"])
     }
 
     @Test
