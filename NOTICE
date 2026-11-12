@@ -3,64 +3,148 @@ Copyright (C) 2026 Bloodlines Android contributors
 
 This product is licensed under the GNU General Public License v3.0 (see LICENSE).
 
-This notice lists third-party software that is used by this project today, or
-that is planned to be embedded by the compatibility runtime. It will be updated
-in the milestone where each component is actually integrated.
+This notice lists the third-party software this project uses, and — separately —
+the third-party software the compatibility runtime acquires at run time. The
+distinction matters and is kept visible throughout: **the runtime is downloaded,
+not bundled.** Nothing in the second section ships inside this APK.
+
+Every component that carries a source-distribution obligation (LGPL, GPL) has
+its source location recorded below, so the obligation can be met rather than
+merely acknowledged.
 
 --------------------------------------------------------------------------------
-Bundled today
+Bundled in this APK
 --------------------------------------------------------------------------------
 
-AndroidX (androidx.appcompat, androidx.core, and their transitive dependencies)
+AndroidX (androidx.appcompat, androidx.core, androidx.documentfile, and their
+transitive dependencies)
   Copyright (C) The Android Open Source Project
   Licensed under the Apache License, Version 2.0
   https://developer.android.com/jetpack/androidx
 
+XZ for Java (org.tukaani:xz)
+  Released into the public domain by Igor Pavlov and the Tukaani project
+  https://tukaani.org/xz/java.html
+  Used to unpack the runtime packages described below, which arrive as
+  XZ-compressed tar archives.
+
+Zstandard JNI (com.github.luben:zstd-jni)
+  Copyright (c) Luben Karavelov and contributors
+  Licensed under the BSD 2-Clause License
+  https://github.com/luben/zstd-jni
+  Used for the runtime packages that upstream publishes with Zstandard
+  compression instead of XZ.
+
+JUnit (org.junit:junit) — test only, not shipped
+  Copyright (C) Erich Gamma, Kent Beck and contributors
+  Licensed under the Eclipse Public License, Version 1.0
+  https://junit.org/junit4/
+
 --------------------------------------------------------------------------------
-Planned - not yet integrated
+Acquired at run time — not bundled, not redistributed by this project
 --------------------------------------------------------------------------------
 
-Wine
+These are downloaded once, from the upstream release pages named below, into a
+folder belonging to this app. The URLs are pinned to a specific release so a
+component cannot change under us. Each is listed with the licence it carries and
+the place its source can be obtained.
+
+Where a component is under the LGPL, obtaining the corresponding source from the
+address below satisfies the source-distribution obligation.
+
+Wine 11.3 (ARM64EC build)
   Copyright (C) 1993-2026 The Wine Project
   Licensed under the GNU Lesser General Public License, version 2.1 or later
-  https://www.winehq.org
+  Source: https://www.winehq.org  (git: https://gitlab.winehq.org/wine/wine)
+  Acquired from: https://github.com/The412Banner/Nightlies/releases/download/Proton/wine/wine-11.3-arm64ec.wcp.xz
+  Provides the Windows API layer. Its Direct3D 9 implementation (WineD3D) is
+  covered by the same licence.
 
-Box86 / Box64
-  Copyright (C) ptitSeb
+WOWBox64 (Box64 built with WoW64 support)
+  Copyright (c) ptitSeb
   Licensed under the MIT License
-  https://github.com/ptitSeb/box86 | https://github.com/ptitSeb/box64
+  Source: https://github.com/ptitSeb/box64
+  Acquired from: https://github.com/The412Banner/Nightlies/releases/download/Wowbox64/WOWBox64-0.4.4.wcp
+  Provides the layer that lets a 64-bit Wine host this game's 32-bit code.
 
-Mesa 3D (VirGL, Panfrost, Zink)
-  Copyright (C) Mesa contributors
-  Licensed under the MIT License (and other MIT/Expat-compatible licences)
-  https://www.mesa3d.org
+Offered as alternatives, and only installed if the user chooses them:
 
-WineD3D (part of Wine)
+Wine 11.3 (x86_64 build)
+  Copyright (C) 1993-2026 The Wine Project
   Licensed under the GNU Lesser General Public License, version 2.1 or later
-  https://www.winehq.org
+  Source: https://www.winehq.org
+  Acquired from: https://github.com/The412Banner/Nightlies/releases/download/Proton/wine/wine-11.3-x86_64.wcp
 
-DXVK / VKD3D-Proton
-  DXVK: Copyright (C) 2019 Philip Rebohle - zlib License
-  VKD3D: Copyright (C) The vkd3d project - GNU LGPL v2.1
-  https://github.com/doitsujin/dxvk | https://gitlab.winehq.org/wine/vkd3d
+Box64 (Bionic build)
+  Copyright (c) ptitSeb
+  Licensed under the MIT License
+  Source: https://github.com/ptitSeb/box64
+  Acquired from: https://github.com/The412Banner/Nightlies/releases/download/nightly-latest/Box64-0.4.5-79d07c69e-Bionic.zip
 
-PRoot
-  Copyright (C) PRoot contributors
-  Licensed under the GNU General Public License, version 2.0 or later
-  https://proot-me.github.io
+FEX-Emu
+  Copyright (c) FEX-Emu contributors
+  Licensed under the MIT License
+  Source: https://github.com/FEX-Emu/FEX
+  Acquired from: https://github.com/The412Banner/Nightlies/releases/download/nightly-latest/FEX-2611+45-Nightly-ab135df09.zip
 
-glibc / Linux userland (e.g. Ubuntu base rootfs)
-  Various licences, predominantly GNU LGPL v2.1 and GPL v2
-  https://www.gnu.org/software/libc/
+--------------------------------------------------------------------------------
+Deliberately NOT acquired
+--------------------------------------------------------------------------------
+
+Mali Vulkan driver (PanVK for Bifrost, community build)
+  https://github.com/soulexit/panvk-bifrost-soulexit
+  This build declares no licence. It therefore cannot be bundled with this
+  application and this application does not download it. Vulkan support is
+  optional: a user who wants it installs it themselves, and the launcher never
+  selects the Vulkan route automatically.
+
+Box86
+  Copyright (c) ptitSeb — MIT License — https://github.com/ptitSeb/box86
+  Not used. It is a 32-bit ARM program and would need a 32-bit userland that
+  Android devices increasingly do not provide. The 32-bit game is hosted through
+  WoW64 instead.
+
+PRoot, glibc userland, VirGL
+  Not used. Wine is built against Android's own Bionic libc, so there is no
+  container and no separate Linux root filesystem in this runtime.
 
 --------------------------------------------------------------------------------
 Upstream reference
 --------------------------------------------------------------------------------
 
-Winlator (brunodev85) - LGPL-2.1 - is used only as an architectural reference and
-compatibility data point for the stack above. No Winlator source code is
-included in this repository, and this application does not require Winlator to be
-installed.
+The following projects are used only as architectural references and sources of
+compatibility data. No source code from any of them is included in this
+repository, and this application does not require any of them to be installed.
+
+Winlator (brunodev85)
+  GNU Lesser General Public License, version 2.1 or later
+  https://github.com/brunodev85/winlator
+
+WinlatorMali (GunaCharanTeja) — the Bionic, PRoot-free architecture and the
+  Mali graphics work this project follows
+  MIT License
+  https://github.com/GunaCharanTeja/WinlatorMali
+
+winlator (Pipetto-crypto) — origin of the Bionic architecture
+  MIT License
+  https://github.com/Pipetto-crypto/winlator
+
+libadrenotools (Pipetto-crypto) — the technique of loading a vendor graphics
+  driver directly, which the Mali wrapper path is modelled on
+  BSD 2-Clause License
+  https://github.com/Pipetto-crypto/libadrenotools
+
+Bannerlator (The412Banner) — reference for package format and launch shape
+  GNU General Public License, version 3.0
+  https://github.com/The412Banner/Bannerlator
+
+FEX-Emu — reference for the alternative WoW64 route
+  MIT License
+  https://github.com/FEX-Emu/FEX
+
+Mesa 3D — reference for OpenGL ES conformance data on Mali
+  MIT License (and other MIT/Expat-compatible licences)
+  https://www.mesa3d.org
 
 --------------------------------------------------------------------------------
 Game data
@@ -70,3 +154,7 @@ Vampire: The Masquerade - Bloodlines is a trademark of Paradox Interactive AB.
 Vampire: The Masquerade is a trademark of White Wolf Publishing.
 No game files, assets or executables are distributed with this project. Users
 must supply their own legally obtained copy.
+
+The launcher reads the game where the user already keeps it. Nothing the runtime
+writes — the Wine prefix, temporary files, logs or the runtime packages
+themselves — is ever placed inside the game folder.

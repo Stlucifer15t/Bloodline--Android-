@@ -72,77 +72,135 @@ amount of engineering inside an app can remove.
 
 ---
 
-## 4. CPU translation: three candidates
+## 4. CPU translation: how a 32-bit executable is hosted
 
-| | **Box86** | **Box64 (WOW64)** | **FEX-Emu** |
-| --- | --- | --- | --- |
-| Runs 32-bit x86 | ✅ Its entire purpose | ✅ Since the WOW64 build option: Box64 can host 32-bit WOW64 DLLs [6](https://github.com/ptitSeb/box64/issues/3648) | ✅ Supports both 32- and 64-bit [3](https://aospbooks.github.io/aosp-internal-book/66-windows-games/) |
-| Needs a 32-bit subsystem | **Yes** — "you NEED a 32-bit subsystem to run and build Box86" [7](https://github.com/cheadrian/termux-chroot-proot-wine-box86_64/blob/main/Setup_Wine_Box86_64.md) | No — it is a 64-bit program | No [3](https://aospbooks.github.io/aosp-internal-book/66-windows-games/) |
-| Needs a separate x86 rootfs | Yes | Yes | No, in ARM64EC mode it plugs into Wine as a CPU module and Wine services the syscalls [3](https://aospbooks.github.io/aosp-internal-book/66-windows-games/) |
-| Maturity on Android | The established path; bundled by Winlator [8](https://tech-insider.org/winlator-vs-box64-vs-wine-2026/) | Newer 32-bit path | Better raw compatibility with "pure" x86 code; reported as more efficient on low-power devices [9](https://emulation.gametechwiki.com/index.php/Compatibility_layers) |
-| Current version | — | Box64 v0.4.4 (Aug 2026) [8](https://tech-insider.org/winlator-vs-box64-vs-wine-2026/) | Actively developed |
+> **This section replaces the original assessment.** The Milestone 2 version
+> recorded Box86 + a 32-bit Wine prefix as the default on the reasoning that
+> `Vampire.exe` is a 32-bit binary, so a 32-bit translator fits. That reasoning
+> was inverted, and the code has since been corrected rather than merely
+> annotated. The inversion is worth recording, because the wrong answer looked
+> like the careful one.
 
-**Position for this project:** Box86 + a 32-bit Wine prefix is the conservative
-path and the one the existing `RuntimeRegistry` already describes, so it stays the
-recorded default. But the translator must be a **replaceable module**, because
-Box64-WOW64 and FEX-ARM64EC are both credible and both remove the 32-bit
-subsystem dependency — and the 32-bit dependency is the fragile part of the
-plan, since 32-bit support is exactly what `runtime_probe` measures and what
-kernels are dropping.
+### What the working runtimes actually do
+
+Inspecting the launchers of the Android runtimes that run 32-bit Windows games
+on Mali showed **no Box86 anywhere**, and a `WINEARCH=win64` prefix rather than
+`win32`. They host the 32-bit guest through **WoW64 inside a 64-bit prefix**:
+
+| Route | Mechanism | Needs a 32-bit userland |
+| --- | --- | --- |
+| **WOWBox64** | Box64 built with WoW64 support, loaded by Wine as `wowbox64.dll` | No |
+| **FEX-Emu** | FEX supplying the WoW64 layer as `libwow64fex.dll` | No |
+| **Box86 + 32-bit prefix** | A 32-bit translator in a 32-bit Wine prefix | **Yes** |
+| Plain Box64 | x86_64 only | No — but cannot host a 32-bit guest at all |
+
+The deciding detail is not performance, it is the dependency. **Box86 is itself
+a 32-bit ARM program**, so it needs a 32-bit userland — precisely the thing
+Android is removing, and precisely the thing this project's own `runtime_probe`
+exists to measure. The WoW64 routes need no 32-bit userland at all.
+
+### The second distinction: ARM64EC versus x86_64 Wine
+
+The command shape follows from which Wine build is used, and the two are not
+interchangeable:
+
+* **ARM64EC Wine** — the command is `wine <exe>`. Wine's own code is ARM64 and
+  runs natively; only the 32-bit guest is translated, by the WoW64 DLL named in
+  `HODLL`.
+* **x86_64 Wine** — the command is `box64 wine <exe>`, because the `wine` binary
+  itself is x86_64. No `HODLL` is set: Box64 is already emulating the whole
+  process, 32-bit guests included.
+
+This project targets ARM64EC. `WineFlavour` models both, and
+`WineEnvironment` sets `HODLL` **only** for the flavours that use a WoW64
+layer — setting it on an x86_64 Wine would be cargo cult.
+
+### Position
+
+**WOWBox64 is the default; FEX is the alternative and the retry.** Box86 remains
+listed and selectable, because it is a legitimate way to run 32-bit code and
+because being wrong about it once is a reason to keep it visible rather than
+delete it — but it is never recommended, and no package in the catalogue
+supplies it.
+
+Plain Box64 is marked as unable to host the game, so the launch gate can refuse
+a configuration that could never work instead of failing somewhere obscure.
+
+The recommendation is deliberately **not** derived from a device measurement.
+An earlier draft switched to FEX on a Mali device that could not execute 32-bit
+processes; reading the Mali builds showed they keep Box64 and set
+`BOX64_MMAP32=0` instead. The accommodation is a Box64 setting, not a different
+translator — and nothing measurable on a phone tells us which emulator handles a
+given game better.
 
 ---
 
-## 5. Graphics: three routes compared for Mali-G52
+## 5. Graphics: routes for Mali-G52
 
 Mali-G52 is **Bifrost, architecture v7, Job Manager frontend**. That
-classification decides everything below [10](https://github.com/zenithblue-oss/panvk-kbase-android/blob/main/docs/MALI-GPU-ARCHITECTURES.md).
+classification decides everything below
+[10](https://github.com/zenithblue-oss/panvk-kbase-android/blob/main/docs/MALI-GPU-ARCHITECTURES.md).
 
-### Option A — OpenGL ES (WineD3D over VirGL)
+> **This section replaces the original assessment in one respect:** VirGL is no
+> longer the default. It remains available as a fallback.
+
+### The default — native GLES wrapper + WineD3D
 
 | | |
 | --- | --- |
-| **Components** | Mesa `virglrenderer` + Mesa Panfrost/llvmpipe GLES + WineD3D (D3D9 → OpenGL) |
+| **Components** | The device's own OpenGL ES driver, loaded through a wrapper, + WineD3D (D3D9 → OpenGL) |
 | **GPU compatibility** | **Panfrost GLES 3.1 is Khronos-conformant on Mali-G52** [11](https://docs.mesa3d.org/drivers/panfrost.html?highlight=panfrost) — the strongest compatibility statement available for this GPU |
-| **Android compatibility** | Good. This is the configuration purpose-built for Mali: "Winlator Mali" replaces Turnip/DXVK with **VirGL + WineD3D** precisely because Turnip/DXVK "do not work properly on many Mali devices" [12](https://winlator.dev/winlator-mali/) |
-| **Performance** | Modest but real. VirGL improvements took a DX9 title from 4 FPS to ~20–25 FPS on a Mali-G57 [13](https://winlator.dev/best-gpu-drivers/). Expect single-digit to low-tens FPS on a G52; **no figure is promised without measuring** |
-| **Limitations** | VirGL is aimed at DX9-era titles; DX10/11 remain problematic [12](https://winlator.dev/winlator-mali/). Bloodlines is DX9, so this limitation does not bite |
-| **Integration difficulty** | Lowest of the three: no external driver package, nothing device-specific |
+| **Why the wrapper rather than VirGL** | This is what the Mali-focused runtimes ship. Winlator Mali **removed** VirGL in 1.2 in favour of a native EGL renderer, and offers only driver-*wrapper* variants. Loading the vendor's own GLES driver needs no Mesa in between |
+| **Integration difficulty** | Low: no device-specific driver package to acquire |
 
-### Option B — Vulkan (DXVK over PanVK)
+VirGL + WineD3D stays in the catalogue as the fallback. It is the better-tested
+route on desktop-class Linux, and it is what tells us whether a failure is in
+the wrapper or in WineD3D.
+
+### The texture problem, which is not optional
+
+Every 2004 Source-engine texture is **DXT1 or DXT5** — BC1 and BC3 in modern
+terms. **Mali does not decode BCn.** Nothing about a conformant GLES 3.2 driver
+implies otherwise: BCn is not in the GLES mandatory set.
+
+Miss this and the failure is silent and total. The game does not crash and does
+not stutter: it runs, and the world is black. That reads as "Wine is broken" and
+sends the investigation down the wrong path entirely.
+
+`TextureCompatibility` reads the GL extension string and picks the best route
+this GPU supports:
+
+| Route | When | Cost |
+| --- | --- | --- |
+| Native BCn | `GL_EXT_texture_compression_s3tc` present | none |
+| BCn → ASTC | ASTC extensions present | transcode |
+| BCn → ETC2 | any GLES 3.0 device (ETC2 is mandatory) | transcode |
+| Software | GLES 2 only | CPU decode, per texture |
+
+An unmeasured device reports **unsupported** rather than a hopeful guess.
+
+### Vulkan (DXVK over PanVK) — optional, never automatic
 
 | | |
 | --- | --- |
-| **Components** | A Vulkan driver for Mali-G52 + DXVK (D3D9/10/11 → Vulkan) |
-| **GPU compatibility** | **Poor upstream, improving in the community.** PanVK is conformant **only on Mali-G610 (v10)**; on v7 it reports Vulkan 1.3 and is explicitly **experimental and non-conformant** — the driver prints `panvk is not a conformant Vulkan implementation, testing use only` and `panvk is not well-tested on v7` [10](https://github.com/zenithblue-oss/panvk-kbase-android/blob/main/docs/MALI-GPU-ARCHITECTURES.md) [11](https://docs.mesa3d.org/drivers/panfrost.html?highlight=panfrost) [14](https://github.com/Rydev-pc/panvk-mali-g52-testes) |
-| **Community state** | Real progress: PanVK has been brought up on Mali-G52 MC2 over the **proprietary `mali_kbase`** device (`/dev/mali0`), with no root and no custom kernel. Validated: device creation, compute dispatch, offscreen rendering with correct readback, X11 WSI, AHardwareBuffer import, and **vkcube presenting on-screen through a Wine/Winlator stack**; basic **DXVK D3D9/D3D10/D3D11** rendering validated on a nearly identical device (Redmi 13C, MT6768, Mali-G52 MC2, Android 14) [15](https://github.com/LukeValen/panvk-mali-g52). Independently reproduced on a Galaxy A06: `PanVK-G52 MC2`, apiVersion 1.4.363, 157 extensions, `vkCreateDevice` succeeds [14](https://github.com/Rydev-pc/panvk-mali-g52-testes) |
-| **Android compatibility** | Depends on a **third-party driver package** that this project would have to accept from outside — which this milestone explicitly does not implement (§10 of the brief) |
-| **Performance** | Unknown on this device. The kbase path "prioritizes correctness and debuggability over maximum performance" [15](https://github.com/LukeValen/panvk-mali-g52). Potentially higher ceiling than VirGL eventually |
-| **Limitations** | Broad game compatibility, long-running async workloads, full external semaphore/fence coverage and performance tuning are all **not yet validated** [15](https://github.com/LukeValen/panvk-mali-g52) |
-| **Integration difficulty** | Highest: driver packaging, WSI, and a device-specific ICD |
+| **GPU compatibility** | **Poor upstream, improving in the community.** PanVK is conformant **only on Mali-G610 (v10)**; on v7 it is explicitly **experimental and non-conformant** — the driver prints `panvk is not a conformant Vulkan implementation, testing use only` and `panvk is not well-tested on v7` [10](https://github.com/zenithblue-oss/panvk-kbase-android/blob/main/docs/MALI-GPU-ARCHITECTURES.md) [11](https://docs.mesa3d.org/drivers/panfrost.html?highlight=panfrost) [14](https://github.com/Rydev-pc/panvk-mali-g52-testes) |
+| **Community state** | Brought up on Mali-G52 MC2 over the proprietary `mali_kbase` device (`/dev/mali0`), no root. Device creation, compute dispatch, offscreen rendering with correct readback, X11 WSI, AHardwareBuffer import and vkcube-on-screen validated; basic DXVK D3D9/10/11 rendering validated on a nearly identical device (Redmi 13C, MT6768, Mali-G52 MC2, Android 14) [15](https://github.com/LukeValen/panvk-mali-g52). Reproduced on a Galaxy A06: `PanVK-G52 MC2`, apiVersion 1.4.363 [14](https://github.com/Rydev-pc/panvk-mali-g52-testes) |
+| **Licensing** | The Bifrost build declares **no licence**. It therefore cannot be bundled and this application does not download it. It is user-installed or nothing |
+| **Policy** | Never selected automatically, however capable the device looks. A measurement can prove a route *might* work, never that it *does* |
 
-### Option C — CPU software rendering (llvmpipe)
+### llvmpipe — the diagnostic
 
-| | |
-| --- | --- |
-| **Components** | Mesa llvmpipe, no GPU involvement |
-| **GPU compatibility** | Total — it does not use the GPU |
-| **Android compatibility** | Total |
-| **Performance** | **Single-digit FPS for 3D** [13](https://winlator.dev/best-gpu-drivers/) |
-| **Value** | A diagnostic escape hatch: if llvmpipe renders and VirGL does not, the fault is in the GPU path, not in Wine or the game |
-| **Integration difficulty** | Lowest |
+Software rendering, no GPU involvement, single-digit FPS for 3D
+[13](https://winlator.dev/best-gpu-drivers/). Its value is diagnostic: if
+llvmpipe draws and the wrapper does not, the fault is in the GPU path rather
+than in Wine or the game.
 
 ### Decision
 
-**Option A is the default, and it is not a close call for this GPU.** Panfrost's
-GLES 3.1 conformance on Mali-G52 is the only Khronos conformance statement that
-covers this device; PanVK's own source says it is not conformant here. Option B
-stays **available but never auto-selected**, and becomes the default only once it
-has been measured on the CK6 — which is exactly the rule the launcher already
-applies to the experimental renderer.
-
-The architecture therefore treats the graphics backend as a pluggable choice
-with three implementations, and encodes the "never auto-select the experimental
-one" rule in code rather than in a comment.
+**The native GLES wrapper is the default.** Graphics is a pluggable choice with
+four implementations, the texture route is chosen explicitly and reported, and
+the "never auto-select the experimental route" rule is encoded in
+`GraphicsBackendSelector` rather than left in a comment.
 
 ---
 
@@ -156,8 +214,18 @@ The route is Wine's ALSA/pulse backend bridged to a host API. Two host targets:
 - **OpenSL ES** — broader compatibility, deprecated but still present.
 
 The launcher already stores an `AudioBackend` preference (Auto / AAudio /
-OpenSL ES). The runtime will honour it; until the bridge exists the backend is a
-recorded preference only.
+OpenSL ES). The runtime honours it.
+
+The hop this app owns is the last one, and it is done the way ALSA intends: an
+`asound.conf` generated into the runtime folder defines `pcm.!default` as a
+plugin this app implements on top of Android's audio API, and the guest is
+pointed at it with `ALSA_CONFIG_PATH` and `ALSA_PLUGIN_DIR`. Those two variables
+are what the working Android runtimes set, which is why they are used here
+rather than invented ones. Inside the prefix, Wine is told through the registry
+to use its ALSA driver.
+
+"None" is a real setting, not an absent one: it starts the game muted so that a
+sound-server problem cannot stop the rest of the runtime from being tested.
 
 ---
 
@@ -199,21 +267,19 @@ Rules the implementation follows:
 
 ---
 
-## 8. What this milestone builds, and what it defers
+## 8. What Milestone 2 built, and what it deferred
 
-| Built here | Deferred, with the reason |
+| Built | Deferred, with the reason |
 | --- | --- |
-| The module structure above, in Kotlin, with unit tests | **Wine itself** — a Wine build for Android is a multi-hour cross-compilation (mingw for the PE side, plus a glibc sysroot) that cannot be produced or verified in this environment. Shipping an unverifiable binary would be worse than shipping none |
-| `InstallationValidator`: real PE-header parsing to prove `Vampire.exe` is a 32-bit x86 Windows binary | Box86/Box64 binaries — same reason, and they must match the Wine build they pair with |
-| A native **graphics capability probe** that reports, on the device, whether the kbase route (`/dev/mali0`) or the DRM route (`/dev/dri/renderD*`) is even available | The glibc userland and PRoot — a large binary dependency, and it must be built against the Wine build |
-| A native **process manager probe** that measures fork/exec/wait/exit-status round trips and the process limit | Driver importing (explicitly out of scope per the brief) |
-| Runtime diagnostics wired into the existing report | Touch HUD, controls, quick slots (explicitly out of scope) |
+| The module structure, in Kotlin, with unit tests | **Wine itself** — a Wine build for Android is a multi-hour cross-compilation that cannot be produced or verified here. Shipping an unverifiable binary would be worse than shipping none |
+| `InstallationValidator`: real PE-header parsing to prove `Vampire.exe` is a 32-bit x86 Windows binary | Box86/Box64 binaries — must match the Wine build they pair with |
+| A native **graphics capability probe** reporting whether the kbase route (`/dev/mali0`) or the DRM route (`/dev/dri/renderD*`) is available | Driver importing (explicitly out of scope per the brief) |
+| A native **process manager probe** measuring fork/exec/wait/exit round trips and the process limit | Touch HUD, controls, quick slots (explicitly out of scope) |
+| Runtime diagnostics wired into the existing report | — |
 | The launch lifecycle state machine, connected to `OrientationController` | — |
 
-**The Launch button stays disabled.** `LaunchReadiness` is extended to also
-require a validated installation, but it still returns `Blocked` because no
-runtime module reports `READY`. It is not enabled by this milestone, and it will
-not be enabled until a launch path genuinely exists.
+The deferred items have since been resolved not by building those binaries but
+by **acquiring** them — see §10.
 
 ---
 
@@ -226,11 +292,106 @@ because it compiles.
 | --- | --- | --- | --- | --- |
 | Module structure, state machine | ✅ | ✅ | n/a | n/a (pure Kotlin, unit tested) |
 | PE-header install validation | ✅ | ✅ | n/a | ⏳ Needs the CK6 |
-| Graphics capability probe | ✅ | ⏳ CI | ⏳ | ⏳ Needs the CK6 |
-| Process manager probe | ✅ | ⏳ CI | ⏳ | ⏳ Needs the CK6 |
-| Wine | ❌ | ❌ | ❌ | ❌ |
-| Box86 / Box64 / FEX | ❌ | ❌ | ❌ | ❌ |
-| glibc userland / PRoot | ❌ | ❌ | ❌ | ❌ |
-| Graphics translation | ❌ | ❌ | ❌ | ❌ |
-| Audio bridge | ❌ | ❌ | ❌ | ❌ |
-| Launching the game | ❌ | ❌ | ❌ | ❌ |
+| Graphics capability probe | ✅ | ✅ | ⏳ | ⏳ Needs the CK6 |
+| Process manager probe | ✅ | ✅ | ⏳ | ⏳ Needs the CK6 |
+| Package acquisition and unpacking | ✅ | ✅ | ⏳ | ⏳ |
+| Wine environment and WoW64 wiring | ✅ | ✅ | ⏳ | ⏳ |
+| Graphics configuration | ✅ | ✅ | ⏳ | ⏳ |
+| Audio configuration | ✅ | ✅ | ⏳ | ⏳ |
+| Launch plan assembly | ✅ | ✅ | ⏳ | ⏳ |
+| Game process monitoring | ✅ | ✅ | ⏳ | ⏳ |
+| glibc userland / PRoot | ➖ | ➖ | ➖ | ➖ Not needed: Wine is Bionic |
+| Launching the game | ✅ code path | ✅ | ❌ | ❌ |
+
+**"Built" means it compiles and its unit tests pass. It does not mean a process
+was started, and it certainly does not mean the game rendered a frame.** No
+device testing has taken place at any point in this project.
+
+---
+
+## 10. What the runtime integration added
+
+Milestone 3 established *what* the runtime should be. This is the work that made
+it real, and the shape it took.
+
+### The runtime is acquired, not bundled
+
+Wine and its WoW64 layer are downloaded once, from the upstream projects that
+build them, into a folder belonging to this app. Nothing is written beside the
+game files. The catalogue pins each component to a specific release so it cannot
+change under us, and records its licence and source location — which is what
+makes the LGPL source-distribution obligation satisfiable rather than merely
+acknowledged. See `NOTICE`.
+
+The one component found during discovery with **no declared licence** — the
+Bifrost PanVK build — is absent from the catalogue rather than present with a
+hopeful note. Vulkan is user-installed or nothing.
+
+### The pipeline
+
+```
+catalogue ─▶ download to staging ─▶ verify ─▶ unpack ─▶ mark installed
+                                                  │
+                              resolve files ──────┘
+                                     │
+        install the WoW64 DLL into the prefix's system32
+                                     │
+        build environment + registry settings + command
+                                     │
+                              start the process
+```
+
+Each step refuses rather than guesses:
+
+* **Staging before extracting.** A partial download is never mistaken for a
+  package, so the launch gate cannot be fooled by an interrupted transfer.
+* **Checksums recorded, not implied.** Upstream publishes no SHA-256 for these
+  assets, so packages install as *unverified* and say so. Treating "no checksum"
+  as "no problem" would be the easy implementation and the dishonest one.
+* **Path traversal refused.** Archive entry names are resolved against the
+  target and anything that escapes aborts the whole extraction. A package is a
+  third-party file fetched over the network.
+* **Files searched, not assumed.** `RuntimeLayout` looks for `wine` rather than
+  trusting `bin/wine`, because the internal layout of a third-party package is
+  not ours to decide and a hard-coded path one directory off reports the wrong
+  problem.
+
+### Two corrections worth stating
+
+Both were wrong in the code, not just in the documentation, and both were
+corrected rather than annotated:
+
+1. **The prefix is 64-bit and the 32-bit game runs through WoW64.** Milestone 2
+   hard-coded `WINEARCH=win32`. It is now derived from the Wine flavour, and
+   `HODLL` is set only for the flavours that use a WoW64 layer.
+2. **There is no container.** The Bionic builds run Wine against Android's own
+   libc, so there is no glibc userland and no PRoot. `RuntimeRegistry` reports
+   the container as ready because there is nothing to be missing, rather than
+   as unfinished work.
+
+### What the gate now asks
+
+`LaunchReadiness` requires every runtime component to report READY, and those
+statuses now come from a `RuntimeProvider` that answers from what is actually on
+the device. Three states are kept distinct because a user can act on all three:
+
+* **Not installed** — the packages have not been downloaded.
+* **Installed but unusable** — the marker is there, the files are not.
+* **Ready** — the packages are installed and their files resolve.
+
+The Launch button opens only in the third case.
+
+### Still unverified
+
+Everything above compiles and is unit tested. Nothing has been executed. In
+particular:
+
+* No Wine process has been started; no prefix has been created.
+* The pinned package URLs have been read from the release API but never
+  downloaded — this sandbox cannot reach GitHub's release-asset host.
+* `.wcp` is a private extension for a tar archive compressed with XZ **or**
+  Zstandard. Which one a given package uses is not stated anywhere we can read,
+  so both are supported and the format is detected from the bytes.
+* The internal layout of each package is searched for, not known.
+* No device has run any of this, so nothing here is a claim about hardware.
+
