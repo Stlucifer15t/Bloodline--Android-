@@ -82,7 +82,20 @@ class ProcessRunner : CommandRunner {
             val output: List<String>,
             val durationMillis: Long,
         ) : Outcome {
+
             val succeeded: Boolean get() = exitCode == 0
+
+            /**
+             * The signal that killed it, or null when it really did exit.
+             *
+             * A process killed by a signal comes back from `waitFor` as
+             * 128 + signal, so 139 is not "exited with 139": it is signal 11,
+             * SIGSEGV, a segmentation fault. Printing the raw integer leaves
+             * the one person who has to act on it reading a number and
+             * guessing, which is how a Wine crash gets mistaken for a
+             * launcher bug.
+             */
+            val signal: Int? get() = if (exitCode in 129..191) exitCode - 128 else null
         }
 
         /** It was still running when the timeout expired, and was killed. */
@@ -99,10 +112,39 @@ class ProcessRunner : CommandRunner {
 
         /** One line for a report. */
         fun describe(): String = when (this) {
-            is Exited -> "exited with $exitCode after ${durationMillis}ms"
+            is Exited -> {
+                val killed = signal
+                if (killed != null) {
+                    "crashed with ${SIGNAL_NAMES[killed] ?: "signal $killed"} " +
+                        "after ${durationMillis}ms"
+                } else {
+                    "exited with $exitCode after ${durationMillis}ms"
+                }
+            }
             is TimedOut -> "was killed after ${timeoutMs}ms with no exit status"
             is Failed -> "did not start: $reason"
         }
+
+        /**
+         * What killed a process, for the handful of signals that turn up here.
+         *
+         * A crash is reported by signal, not by exit code: 139 means SIGSEGV,
+         * and "crashed with SIGSEGV" is the sentence that tells someone the
+         * program touched memory it did not own, where "exited with 139"
+         * tells them nothing.
+         */
+        private val SIGNAL_NAMES = mapOf(
+            2 to "SIGINT",
+            4 to "SIGILL",
+            5 to "SIGTRAP",
+            6 to "SIGABRT",
+            7 to "SIGBUS",
+            8 to "SIGFPE",
+            9 to "SIGKILL",
+            11 to "SIGSEGV",
+            13 to "SIGPIPE",
+            15 to "SIGTERM",
+        )
     }
 
     /** A process that is still running, so a caller can stop it. */

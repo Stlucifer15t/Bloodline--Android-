@@ -213,6 +213,9 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     /** What reading the executable's header said, or null when not yet read. */
     private var installValidation: InstallValidation? = null
 
+    /** The last launch attempt in full, or null when the last one did not fail. */
+    private var launchFailure: String? = null
+
     private val probeCache: ProbeCache by lazy { ProbeCache(this) }
     private var nativeHostingStatus: IntegrationStatus = IntegrationStatus.NOT_INTEGRATED
 
@@ -437,9 +440,48 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     }
 
     override fun onError(message: String) = runOnUiThread {
+        // Kept, not just shown: a toast is one line and it disappears. What
+        // failed is Wine, and its own output is the only evidence for why.
+        launchFailure = describeLaunchFailure(message)
         showMessage(message)
         updateLaunchState()
     }
+
+    /**
+     * The last launch attempt, in more than a toast's worth of words.
+     *
+     * Everything the run printed is already kept for the diagnostics report,
+     * so it is put on screen here rather than making someone generate a ZIP
+     * to discover that a Windows program segfaulted.
+     */
+    private fun describeLaunchFailure(message: String): String = buildString {
+        appendLine(message)
+
+        val report = runtimeHost.initialisation()
+        if (report != null) {
+            appendLine()
+            appendLine(report.describe())
+
+            val failed = report.failedAt
+            val output = failed?.let { report.outputOf(it.stage) }.orEmpty()
+            if (output.isNotEmpty()) {
+                appendLine()
+                appendLine(
+                    getString(
+                        R.string.launch_failure_output_heading,
+                        failed?.stage?.title.orEmpty(),
+                    ),
+                )
+                append(output.takeLast(LAST_OUTPUT_LINES).joinToString("\n"))
+            }
+        } else {
+            val printed = runtimeOutput.toString().trim()
+            if (printed.isNotBlank()) {
+                appendLine()
+                append(printed.split('\n').takeLast(LAST_OUTPUT_LINES).joinToString("\n"))
+            }
+        }
+    }.trimEnd()
 
     // ---------------------------------------------------------------- content
 
@@ -550,13 +592,18 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         val all = runtimeComponents()
         val components = all.associateBy { it.id }
 
+        val overall = RuntimeRegistry.overallOf(all)
         bindStatusRow(
             binding.runtimeOverall,
             RuntimeComponent(
                 id = "overall",
                 title = getString(R.string.runtime_overall_label),
-                detail = getString(R.string.runtime_overall_detail),
-                status = RuntimeRegistry.overallOf(all),
+                // Derived from the status this row is about to draw, so the
+                // two cannot disagree. It used to be one fixed string saying
+                // the runtime was not integrated, which it kept saying after
+                // Wine had been downloaded and had booted a prefix.
+                detail = getString(overall.detailRes()),
+                status = overall,
             ),
         )
         bindNativeRow(component(components, ComponentIds.NATIVE_HOSTING))
@@ -614,6 +661,20 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         IntegrationStatus.READY -> R.string.status_ready
         IntegrationStatus.PARTIAL -> R.string.status_partial
         IntegrationStatus.NOT_INTEGRATED -> R.string.status_not_integrated
+    }
+
+    /**
+     * What the aggregate runtime status means, in a sentence.
+     *
+     * Kept next to [IntegrationStatus.labelRes] for the same reason: the
+     * launcher used to print one fixed line about shipping as a UI foundation
+     * while the card underneath it said Wine was installed and the device had
+     * been measured.
+     */
+    private fun IntegrationStatus.detailRes(): Int = when (this) {
+        IntegrationStatus.READY -> R.string.runtime_overall_detail_ready
+        IntegrationStatus.PARTIAL -> R.string.runtime_overall_detail_partial
+        IntegrationStatus.NOT_INTEGRATED -> R.string.runtime_overall_detail_none
     }
 
     // ------------------------------------------------------------ game status
@@ -1022,9 +1083,10 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      */
     private fun showLaunchBlockDetail() {
         val invalid = installValidation as? InstallValidation.Invalid
-        // Nothing to expand: the button works, so the one line already on
-        // screen is the whole story.
-        if (launchState() !is LaunchState.Blocked && invalid == null) return
+        val failure = launchFailure
+        // Nothing to expand: the button works and nothing has failed yet, so
+        // the one line already on screen is the whole story.
+        if (launchState() !is LaunchState.Blocked && invalid == null && failure == null) return
 
         val message = buildString {
             appendLine(binding.launchHint.text)
@@ -1035,6 +1097,11 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                 }
                 appendLine()
                 append(getString(R.string.launch_blocked_checked_folder, invalid.path))
+            }
+            if (failure != null) {
+                appendLine()
+                appendLine(getString(R.string.launch_failure_heading))
+                append(failure)
             }
         }.trimEnd()
 
@@ -1305,6 +1372,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
         // Each attempt gets a clean log: what Wine said last time is not
         // evidence about what it does this time.
+        launchFailure = null
         runtimeOutput.setLength(0)
         launchExecutor.execute {
             val phase = try {
@@ -1757,5 +1825,8 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
         /** Cap on how much of the runtime's output a report will carry. */
         const val RUNTIME_OUTPUT_LIMIT = 256 * 1024
+
+        /** How much of a failed run to show on screen. Enough to see a crash. */
+        const val LAST_OUTPUT_LINES = 40
     }
 }

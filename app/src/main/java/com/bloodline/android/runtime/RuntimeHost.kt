@@ -144,6 +144,16 @@ class RuntimeHost(
     fun validation(): InstallValidation? = validation
 
     /**
+     * How far Wine got the last time it was brought up, or null.
+     *
+     * Exposed because a launch failure is a Wine failure, and the only
+     * evidence for why is the report this holds: every stage, and the output
+     * of the one that broke. A toast can carry one line; a crash inside Wine
+     * cannot be understood from one line.
+     */
+    fun initialisation(): WineInitialiser.Report? = manager.initialisation()
+
+    /**
      * What the runtime would use right now, for the UI to show.
      *
      * Reported even though nothing can launch, because "which backend would this

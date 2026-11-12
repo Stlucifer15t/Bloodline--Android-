@@ -33,6 +33,7 @@ import com.bloodline.android.game.GameInstallRepository
 import com.bloodline.android.runtime.NativeProbe
 import com.bloodline.android.runtime.ProbeCache
 import com.bloodline.android.runtime.RuntimeProbe
+import com.bloodline.android.runtime.RuntimeProviders
 import com.bloodline.android.storage.GameFolderStore
 import com.bloodline.android.storage.SharedPreferencesInstallMetadataStore
 import com.bloodline.android.storage.StorageLocations
@@ -567,10 +568,28 @@ class SettingsActivity : AppCompatActivity() {
                 detail = getString(R.string.setting_device_capability_detail),
                 value = probeSummary(PROBE_RUNTIME) { RuntimeProbe.summary(it) },
             )
+            // Answered from what is actually installed rather than from a
+            // fixed string. This row used to say the runtime was not
+            // integrated and the launcher was a UI foundation, which it went
+            // on saying after Wine had been downloaded and had booted a
+            // prefix on the device.
+            val missingPackages = RuntimeProviders.packaged(this).missing()
             readOnlyRow(
                 title = getString(R.string.setting_runtime_version),
-                detail = getString(R.string.runtime_overall_detail),
-                value = getString(R.string.status_not_integrated),
+                detail = getString(
+                    if (missingPackages.isEmpty()) {
+                        R.string.runtime_overall_detail_installed
+                    } else {
+                        R.string.runtime_overall_detail_none
+                    },
+                ),
+                value = getString(
+                    if (missingPackages.isEmpty()) {
+                        R.string.status_ready
+                    } else {
+                        R.string.status_not_integrated
+                    },
+                ),
             )
         }
     }

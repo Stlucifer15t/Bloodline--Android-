@@ -53,6 +53,10 @@
     <string name="runtime_selection_translator">Translator: %1$s.</string>
     <string name="runtime_selection_audio">Audio: %1$s.</string>
     <string name="runtime_overall_detail">The Windows compatibility layer is not integrated yet. The launcher ships as a UI foundation only.</string>
+    <string name="runtime_overall_detail_ready">Wine and the 32-bit Windows layer are installed, and this device has been measured. Tap Launch to run the game.</string>
+    <string name="runtime_overall_detail_partial">Part of the compatibility layer is installed and part is not. Every row below says which; press Launch to find out how far it gets.</string>
+    <string name="runtime_overall_detail_none">The Windows compatibility layer is not installed yet. Download it from the runtime card, or press Launch.</string>
+    <string name="runtime_overall_detail_installed">Wine and the 32-bit Windows layer are installed. Whether they actually run on this device is decided by pressing Launch, not by anything stored here.</string>
 
     <!-- Status labels -->
     <string name="status_ready">Ready</string>
@@ -119,6 +123,8 @@
     <string name="launch_progress_starting">Starting…</string>
     <string name="launch_already_running">A launch is already in progress.</string>
     <string name="launch_in_game_no_surface">The game process started, but this build has no surface to draw it on yet.</string>
+    <string name="launch_failure_heading">Last launch attempt</string>
+    <string name="launch_failure_output_heading">What %1$s printed:</string>
 
     <!-- Runtime acquisition: the runtime is downloaded, never bundled. -->
     <string name="runtime_install_title">Install the compatibility runtime?</string>
