@@ -123,6 +123,21 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     /** Background thread for one-off work that must never block the UI. */
     private val background: ExecutorService = Executors.newSingleThreadExecutor()
 
+    /**
+     * A launch has its own thread, and not [background].
+     *
+     * [background] is a single thread shared by the validation, the device
+     * probes, the runtime download and report generation. Bringing Wine up runs
+     * `wine --version`, `wineboot` and a 32-bit program, whose timeouts alone
+     * add up to more than five minutes — so a launch on that thread froze every
+     * one of those jobs, and froze the screen with them.
+     */
+    private val launchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /** Guards against two Wine bring-ups racing each other. */
+    @Volatile
+    private var launching = false
+
     private lateinit var diagnostics: DiagnosticsManager
 
     private var install: GameInstall? = null
@@ -400,7 +415,20 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      */
     override fun onPhaseChanged(phase: RuntimeManager.Phase) = runOnUiThread {
         if (isFinishing || isDestroyed) return@runOnUiThread
-        binding.launchHint.text = RuntimeDiagnostics.describePhase(phase)
+        binding.launchHint.text = if (phase is RuntimeManager.Phase.InGame) {
+            // Said plainly rather than as "in game": there is no surface in
+            // this build, so a process that reached this phase is running with
+            // nowhere to draw, and the screen is not going to change.
+            getString(R.string.launch_in_game_no_surface)
+        } else {
+            RuntimeDiagnostics.describePhase(phase)
+        }
+    }
+
+    override fun onLaunchProgress(message: String) = runOnUiThread {
+        if (isFinishing || isDestroyed) return@runOnUiThread
+        binding.launchProgress.isVisible = true
+        binding.launchProgressText.text = message
     }
 
     override fun onFinished(message: String) = runOnUiThread {
@@ -1263,13 +1291,30 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         // `wineboot` and a 32-bit program, each of which can take a minute or
         // more on a phone. Calling it from a click handler would freeze the
         // launcher for as long as Wine takes to come up.
+        if (launching) {
+            showMessage(getString(R.string.launch_already_running))
+            return
+        }
+        launching = true
+
         binding.launchButton.isEnabled = false
+        // Shown before the work starts, not when it finishes: the whole point
+        // is that this can take minutes and the screen used to say nothing.
+        binding.launchProgress.isVisible = true
+        binding.launchProgressText.text = getString(R.string.launch_progress_starting)
+
         // Each attempt gets a clean log: what Wine said last time is not
         // evidence about what it does this time.
         runtimeOutput.setLength(0)
-        background.execute {
-            val phase = runtimeHost.launch()
+        launchExecutor.execute {
+            val phase = try {
+                runtimeHost.launch()
+            } finally {
+                launching = false
+            }
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                binding.launchProgress.isVisible = false
                 if (phase !is RuntimeManager.Phase.InGame) {
                     binding.launchButton.isEnabled = true
                 }

@@ -135,6 +135,43 @@ class WineInitialiserTest {
     }
 
     @Test
+    fun `names every stage before it runs, so a long wait is never silent`() {
+        // The three stages that run a process carry timeouts of 10s, 180s and
+        // 120s. Reporting only at the end means the screen says nothing for
+        // five minutes, which is indistinguishable from a broken button.
+        val (initialiser, _) = initialiser(exited(0), exited(0), exited(3))
+
+        val seen = mutableListOf<String>()
+        initialiser.initialise(
+            flavour = WineFlavour.WOW64_BOX64,
+            environment = emptyMap(),
+            onStage = { stage, index, total -> seen += "${stage.name} $index/$total" },
+        )
+
+        assertEquals(
+            listOf("VALIDATE 1/5", "LOADER 2/5", "PREFIX 3/5", "REGISTRY 4/5", "WOW64 5/5"),
+            seen,
+        )
+    }
+
+    @Test
+    fun `stops naming stages at the one that failed`() {
+        // The last stage reported is the stage to blame, so it has to be the
+        // one that actually broke rather than the one after it.
+        val (initialiser, _) = initialiser(exited(1))
+
+        val seen = mutableListOf<WineInitialiser.Stage>()
+        val report = initialiser.initialise(
+            flavour = WineFlavour.WOW64_BOX64,
+            environment = emptyMap(),
+            onStage = { stage, _, _ -> seen += stage },
+        )
+
+        assertEquals(listOf(WineInitialiser.Stage.VALIDATE, WineInitialiser.Stage.LOADER), seen)
+        assertEquals(WineInitialiser.Stage.LOADER, report.failedAt?.stage)
+    }
+
+    @Test
     fun `the prefix is created with Mono's installer suppressed, and nothing else is`() {
         // The first-run Mono prompt waits for an answer nobody can give on a
         // phone, so `wineboot` would hang until the timeout. The override has

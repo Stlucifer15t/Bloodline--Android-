@@ -625,6 +625,40 @@
             android:paddingEnd="@dimen/space_2"
             android:text="@string/launch_locked_no_runtime" />
 
+        <!--
+            Bringing Wine up runs `wine --version`, `wineboot` and a 32-bit
+            program, and their timeouts alone add up to more than five minutes.
+            Without this the Launch button greys out and the screen says nothing
+            at all for that whole time, which is indistinguishable from a button
+            that simply does not work.
+        -->
+        <LinearLayout
+            android:id="@+id/launchProgress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_3"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <ProgressBar
+                android:id="@+id/launchProgressBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:indeterminate="true" />
+
+            <TextView
+                android:id="@+id/launchProgressText"
+                style="@style/Text.RowDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_2"
+                android:gravity="center"
+                tools:text="Creating the Windows prefix (3 of 5)…" />
+
+        </LinearLayout>
+
         <Button
             android:id="@+id/settingsButton"
             style="@style/Widget.Bloodlines.OutlineButton"

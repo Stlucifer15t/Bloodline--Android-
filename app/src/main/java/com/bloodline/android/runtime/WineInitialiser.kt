@@ -167,16 +167,24 @@ class WineInitialiser(
      *        reliable way to get a prefix that behaves differently on launch.
      * @param plan the launch plan, whose registry settings are applied.
      * @param onLine called with each line Wine prints.
+     * @param onStage called with each stage before it runs, and where it sits
+     *        in the sequence. The stages are the slow part — the three that run
+     *        a process carry timeouts of 10s, 180s and 120s — so a caller that
+     *        only hears at the end leaves the screen blank for minutes.
      */
     fun initialise(
         flavour: WineFlavour,
         environment: Map<String, String>,
         plan: RuntimeLauncher.LaunchPlan? = null,
         onLine: (String) -> Unit = {},
+        onStage: (Stage, Int, Int) -> Unit = { _, _, _ -> },
     ): Report {
         val results = mutableListOf<StageResult>()
+        val total = Stage.entries.size
+        fun starting(stage: Stage) = onStage(stage, stage.ordinal + 1, total)
 
         // ---- 1. what the binary actually is --------------------------------
+        starting(Stage.VALIDATE)
         val loader = layout.wineLoader(flavour)
         if (loader == null) {
             results += StageResult(
@@ -208,6 +216,7 @@ class WineInitialiser(
         }
 
         // ---- 2. does the loader run at all ---------------------------------
+        starting(Stage.LOADER)
         val version = run(
             Stage.LOADER,
             listOf(loader.absolutePath, "--version"),
@@ -219,6 +228,7 @@ class WineInitialiser(
         if (!version.succeeded) return Report(results)
 
         // ---- 3. create the prefix ------------------------------------------
+        starting(Stage.PREFIX)
         // `mscoree` is disabled for this one command and no other. Wine's first
         // run offers to download Mono, and .NET's installer waits for an answer
         // nobody can give on a phone: the prefix creation hangs until the
@@ -234,6 +244,7 @@ class WineInitialiser(
         if (!prefix.succeeded) return Report(results)
 
         // ---- 4. the settings the game will run under -----------------------
+        starting(Stage.REGISTRY)
         val settings = plan?.registrySettings.orEmpty()
         if (settings.isEmpty()) {
             results += StageResult(
@@ -258,6 +269,7 @@ class WineInitialiser(
         }
 
         // ---- 5. a 32-bit Windows program -----------------------------------
+        starting(Stage.WOW64)
         results += runWow64Test(flavour, loader, environment, onLine)
 
         return Report(results)

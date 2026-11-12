@@ -77,6 +77,27 @@ class RuntimeManager(
      */
     var onProcessExit: ((GameProcessManager.ExitResult) -> Unit)? = null
 
+    /**
+     * Called every time the lifecycle moves, not only when it stops.
+     *
+     * Bringing Wine up runs `wine --version`, `wineboot` and a 32-bit program,
+     * and the timeouts alone add up to over five minutes. Reporting only the
+     * phase it finally reached meant the launcher sat completely silent for
+     * that whole time, which is indistinguishable from a button that does
+     * nothing. Called on whatever thread the launch runs on.
+     */
+    var onPhase: ((Phase) -> Unit)? = null
+
+    /**
+     * Called before each Wine stage runs, with the stage and where it sits.
+     *
+     * The three slow stages have timeouts of 10s, 180s and 120s, so "preparing
+     * the runtime" on its own can cover five minutes of silence. This names the
+     * stage being worked on, which is also the stage a failure will be blamed
+     * on. Called on whatever thread the launch runs on.
+     */
+    var onWineStage: ((WineInitialiser.Stage, Int, Int) -> Unit)? = null
+
     private var capabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
 
     private var processManager = GameProcessManager()
@@ -96,6 +117,12 @@ class RuntimeManager(
 
     /** Where the lifecycle has got to. */
     fun phase(): Phase = phase
+
+    /** Moves the lifecycle on and tells anyone watching. */
+    private fun publish(next: Phase) {
+        phase = next
+        onPhase?.invoke(next)
+    }
 
     /** The capabilities the last [prepare] used. */
     fun capabilities(): RuntimeCapabilities = capabilities
@@ -188,17 +215,17 @@ class RuntimeManager(
      *         and never assumes success.
      */
     fun start(validation: InstallValidation?): Phase {
-        phase = Phase.Validating
+        publish(Phase.Validating)
         when (val decision = decide(validation)) {
             is LaunchDecision.No -> {
                 lastError = decision.reason
-                phase = Phase.Restored(decision.reason)
+                publish(Phase.Restored(decision.reason))
                 return phase
             }
             is LaunchDecision.Yes -> Unit
         }
 
-        phase = Phase.Preparing
+        publish(Phase.Preparing)
 
         // The step that makes a 32-bit executable runnable: the WoW64 DLL has
         // to be inside the prefix, in system32, or Wine finds nothing to host
@@ -209,7 +236,7 @@ class RuntimeManager(
             is RuntimeLauncher.Preparation.Ready -> Unit
             is RuntimeLauncher.Preparation.Failed -> {
                 lastError = prepared.reason
-                phase = Phase.Restored(prepared.reason)
+                publish(Phase.Restored(prepared.reason))
                 return phase
             }
         }
@@ -217,7 +244,7 @@ class RuntimeManager(
         val graphics = graphicsSelection()
         val translator = cpuTranslator()
 
-        phase = Phase.Initialising(graphics, translator)
+        publish(Phase.Initialising(graphics, translator))
 
         // The command is empty until binaries exist, and onLaunch refuses an
         // empty command rather than pretending to start something. That refusal
@@ -227,7 +254,7 @@ class RuntimeManager(
             val reason = lastPlan?.missing?.firstOrNull()
                 ?: "The runtime could not build a command to start the game with."
             lastError = reason
-            phase = Phase.Restored(reason)
+            publish(Phase.Restored(reason))
             return phase
         }
 
@@ -241,7 +268,7 @@ class RuntimeManager(
                 val failed = broughtUp.failedAt
                 if (failed != null) {
                     lastError = failed.describe()
-                    phase = Phase.Restored(failed.describe())
+                    publish(Phase.Restored(failed.describe()))
                     return phase
                 }
             }
@@ -252,11 +279,11 @@ class RuntimeManager(
             val reason = (state as? GameProcessManager.State.Failed)?.reason
                 ?: "The game process could not be started."
             lastError = reason
-            phase = Phase.Restored(reason)
+            publish(Phase.Restored(reason))
             return phase
         }
 
-        phase = Phase.Launching
+        publish(Phase.Launching)
 
         // Started, not waited for: the game runs for hours. The callback is how
         // its exit reaches the process manager from the runner's thread.
@@ -289,7 +316,7 @@ class RuntimeManager(
             },
         )
 
-        phase = Phase.InGame
+        publish(Phase.InGame)
         return phase
     }
 
@@ -305,6 +332,7 @@ class RuntimeManager(
             environment = lastPlan?.environment.orEmpty(),
             plan = lastPlan,
             onLine = onOutput,
+            onStage = { stage, index, total -> onWineStage?.invoke(stage, index, total) },
         )
 
     /**
@@ -325,7 +353,7 @@ class RuntimeManager(
             StopReason.Vanished -> processManager.onReaped()
             is StopReason.Exited -> processManager.onExit(reason.exitCode, reason.signal)
         }
-        phase = Phase.Restored(result.reason.name)
+        publish(Phase.Restored(result.reason.name))
         return result
     }
 
@@ -333,7 +361,7 @@ class RuntimeManager(
     fun acknowledgeRestored() {
         processManager.reset()
         lastError = null
-        phase = Phase.Idle
+        publish(Phase.Idle)
     }
 
     /** The last failure, for the UI to show. Null once acknowledged. */

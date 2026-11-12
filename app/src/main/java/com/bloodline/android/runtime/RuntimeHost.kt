@@ -82,6 +82,16 @@ class RuntimeHost(
         /** Report a state change. Always called on the main thread. */
         fun onPhaseChanged(phase: RuntimeManager.Phase)
 
+        /**
+         * What the launch is doing right now, in words for a person.
+         *
+         * Separate from [onPhaseChanged] because the phases are too coarse to
+         * explain a wait: bringing Wine up spends up to three minutes in one
+         * phase. Defaults to nothing so a host that only cares about the
+         * outcome does not have to implement it.
+         */
+        fun onLaunchProgress(message: String) {}
+
         /** The run ended. [message] is written for a person to read. */
         fun onFinished(message: String)
 
@@ -98,6 +108,19 @@ class RuntimeHost(
         manager.onProcessExit = { result ->
             host.exitGameplay()
             host.onFinished(messageFor(result))
+        }
+
+        // Every phase as it is entered, not just the one it stopped at. The
+        // manager is the only thing that knows when it moves, so this is what
+        // lets the screen follow a launch that takes minutes.
+        manager.onPhase = { phase -> host.onPhaseChanged(phase) }
+
+        // Named rather than counted: "creating the Windows prefix (3 of 5)" is
+        // something a user can wait through, where "preparing the runtime"
+        // is not. The stage is also the thing a failure gets blamed on, so
+        // seeing it arrive is seeing how far the launch actually got.
+        manager.onWineStage = { stage, index, total ->
+            host.onLaunchProgress("${stage.title} ($index of $total)…")
         }
     }
 

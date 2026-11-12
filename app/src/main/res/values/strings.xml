@@ -116,6 +116,9 @@
     <string name="launch_blocked_title">Why launch is disabled</string>
     <string name="launch_blocked_checked_folder">Checked folder: %1$s</string>
     <string name="launch_blocked_recheck">Check again</string>
+    <string name="launch_progress_starting">Starting…</string>
+    <string name="launch_already_running">A launch is already in progress.</string>
+    <string name="launch_in_game_no_surface">The game process started, but this build has no surface to draw it on yet.</string>
 
     <!-- Runtime acquisition: the runtime is downloaded, never bundled. -->
     <string name="runtime_install_title">Install the compatibility runtime?</string>
