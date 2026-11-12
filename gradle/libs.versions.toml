@@ -10,12 +10,41 @@ kotlin = "2.2.20"
 # lowest version that comfortably supports the ARM64 userland a Wine/Box86
 # runtime needs.
 minSdk = "26"
-targetSdk = "36"
+
+# targetSdk is 28 on purpose, and this is the single most load-bearing line in
+# the build.
+#
+# Since Android 10 the platform mounts an app's own data directory noexec,
+# unless that app declares targetSdkVersion below 29. Wine is a program on
+# disk: this runtime has to exec it out of the folder this app owns, and so
+# does Wine itself for its child processes - wineserver especially. At
+# targetSdk 36 there is no exec, no Wine, and no game, however correct
+# everything else is.
+#
+# The alternative - copying each binary into a memfd and execveat'ing that -
+# launches the first process and then fails on the second, because nothing
+# intercepts the exec calls Wine makes for itself. The reference
+# implementation (Winlator, and its Mali and Bannerlator forks) targets API 28
+# and launches its binaries with a plain ProcessBuilder. They do that because
+# it is the only thing that works.
+#
+# The cost is real and accepted: this app cannot be distributed through the
+# Play Store, which requires a current targetSdk. It is a GPL project
+# installed by hand from a release APK, which is how its upstream projects are
+# distributed too. compileSdk stays current, so nothing about how the app is
+# built is held back by this.
+targetSdk = "28"
 compileSdk = "36"
 
 # Application version.
-versionCode = "1"
-versionName = "0.1.0"
+#
+# versionCode MUST increase with every merged change. It is the only thing
+# Android looks at when deciding whether an APK is an update: two builds that
+# carry the same versionCode are the same build as far as the installer is
+# concerned, so a new APK will not be installed over the old one. Bump it in
+# the same commit as the change, not afterwards.
+versionCode = "5"
+versionName = "0.5.0"
 
 # Libraries. Kept deliberately small: AppCompat for a custom (non-Material)
 # dark theme, androidx.core for tinting/compat helpers, JUnit for unit tests.
@@ -24,11 +53,21 @@ coreKtx = "1.15.0"
 documentfile = "1.0.1"
 junit = "4.13.2"
 
+# Archive decompression. Both are needed, not one: the upstream runtime
+# packages use a private ".wcp" extension over a tar archive compressed with
+# either XZ or Zstandard, and trying one and falling back is what the
+# upstream installer itself does. xz is pure Java and in the public domain;
+# zstd-jni is the reference Zstandard binding (BSD-2).
+xz = "1.9"
+zstdJni = "1.5.6-3"
+
 [libraries]
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
+zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

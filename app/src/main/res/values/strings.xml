@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- No apostrophes anywhere in this file: aapt2 reads a bare one as the
+         start of an escape sequence and fails the resource flattening. -->
     <string name="app_name">Bloodlines</string>
 
     <!-- Header -->
@@ -46,6 +48,10 @@
     <string name="runtime_capability_pending">Measuring… tap to refresh later</string>
     <string name="runtime_capability_failed">Probe failed (exit %1$d)</string>
     <string name="runtime_capability_hint">ptrace, seccomp, executing from memory and 32-bit support, measured on this device</string>
+    <string name="runtime_selection_prefix">This device would use\u0020</string>
+    <string name="runtime_selection_fallback">\u0020(fallback)</string>
+    <string name="runtime_selection_translator">Translator: %1$s.</string>
+    <string name="runtime_selection_audio">Audio: %1$s.</string>
     <string name="runtime_overall_detail">The Windows compatibility layer is not integrated yet. The launcher ships as a UI foundation only.</string>
 
     <!-- Status labels -->
@@ -99,9 +105,26 @@
     <!-- Launch -->
     <string name="launch_game">Launch Game</string>
     <string name="launch_ready">Runtime ready — tap to launch</string>
+    <string name="launch_needs_runtime">The compatibility runtime has not been downloaded yet — tap to fetch it</string>
+    <string name="launch_install_runtime">Install runtime</string>
     <string name="launch_locked_no_install">Import your game files to enable launch</string>
     <string name="launch_locked_incomplete">Game data folder missing — launch stays disabled</string>
     <string name="launch_locked_no_runtime">The compatibility runtime is not integrated yet — launch stays disabled</string>
+    <string name="launch_locked_not_validated">Vampire.exe has not been verified as a 32-bit Windows executable yet — launch stays disabled</string>
+
+    <!-- Runtime acquisition: the runtime is downloaded, never bundled. -->
+    <string name="runtime_install_title">Install the compatibility runtime?</string>
+    <string name="runtime_install_message">The launcher needs Wine and its 32-bit Windows layer to run Vampire.exe. They are downloaded from the upstream projects that build them, once, and kept in a folder belonging to this app — nothing is written beside your game files.\n\nDownload size: %1$s. Use Wi-Fi.</string>
+    <string name="runtime_install_positive">Download</string>
+    <string name="runtime_install_negative">Not now</string>
+    <string name="runtime_install_starting">Preparing to download…</string>
+    <string name="runtime_install_done">Runtime installed. Tap launch again.</string>
+    <string name="runtime_install_failed">Installing %1$s failed: %2$s</string>
+    <string name="runtime_install_cancelled">The download was cancelled.</string>
+    <string name="runtime_install_already_running">The runtime is already downloading.</string>
+    <string name="runtime_install_action">Download runtime · %1$s</string>
+    <string name="runtime_install_unavailable">Runtime not available on this device</string>
+    <string name="runtime_install_progress">%1$s\n%2$d%% of this package · %3$d of %4$d</string>
 
     <plurals name="install_search_path_value">
         <item quantity="one">%1$d location</item>
@@ -124,7 +147,7 @@
 
 
     <!-- Footer -->
-    <string name="footer_version">Milestone 1 · foundation build %1$s</string>
+    <string name="footer_version">Milestone 2 · runtime foundation build %1$s</string>
     <string name="footer_disclaimer">Fan-made compatibility launcher. Vampire: The Masquerade – Bloodlines is a trademark of Paradox Interactive AB. Game files are not included and must be supplied by you.</string>
     <!-- ============================== Settings ============================= -->
     <string name="settings_title">Settings</string>

@@ -1,5 +1,6 @@
 package com.bloodline.android.storage
 
+import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
@@ -18,6 +19,7 @@ import com.bloodline.android.game.StorageFolder
 class DocumentFolder private constructor(
     private val document: DocumentFile,
     private val displayPath: String,
+    private val resolver: ContentResolver,
 ) : StorageFolder {
 
     override val location: GameLocation = GameLocation(
@@ -33,9 +35,15 @@ class DocumentFolder private constructor(
 
         return children.mapNotNull { child ->
             val name = child.name ?: return@mapNotNull null
-            StorageEntry(name = name, isDirectory = child.isDirectory) {
-                DocumentFolder(child, "$displayPath/$name")
-            }
+            StorageEntry(
+                name = name,
+                isDirectory = child.isDirectory,
+                open = { DocumentFolder(child, "$displayPath/$name", resolver) },
+                // Reading through the resolver is the only way to reach a SAF
+                // document, and the grant can be revoked at any moment — hence
+                // runCatching rather than letting it throw.
+                read = { runCatching { resolver.openInputStream(child.uri) }.getOrNull() },
+            )
         }
     }
 
@@ -44,7 +52,11 @@ class DocumentFolder private constructor(
         fun fromTree(context: Context, treeUri: Uri): DocumentFolder {
             val document = DocumentFile.fromTreeUri(context, treeUri)
                 ?: throw IllegalArgumentException("That folder could not be opened: $treeUri")
-            return DocumentFolder(document, document.name ?: "selected folder")
+            return DocumentFolder(
+                document = document,
+                displayPath = document.name ?: "selected folder",
+                resolver = context.contentResolver,
+            )
         }
     }
 }

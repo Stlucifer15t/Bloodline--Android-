@@ -40,3 +40,38 @@ set_target_properties(runtime_probe PROPERTIES
     PREFIX "lib"
     SUFFIX ".so"
 )
+
+#
+# Graphics capability probe
+# -------------------------
+# Which route to the GPU exists on this device, which nothing in the Java API
+# can answer: Mesa's Panfrost wants a DRM render node (/dev/dri/renderD*), while
+# the community PanVK builds for Mali-G52 go through Arm's kbase node
+# (/dev/mali0) because those devices ship the closed driver and no DRM node.
+# Which one is present decides which graphics backends are worth offering.
+#
+add_executable(graphics_probe graphics_probe.c)
+
+set_target_properties(graphics_probe PROPERTIES
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
+target_link_libraries(graphics_probe PRIVATE ${CMAKE_DL_LIBS} log)
+
+#
+# Process management probe
+# ------------------------
+# Wine does not run one process, it runs a tree, and Android 12+ kills an app's
+# children past a fixed cap — the victim vanishing with no exit status. This
+# measures fork/exec/wait round trips, whether a small tree can be reaped
+# cleanly, and what the process limit actually is on this device.
+#
+add_executable(process_probe process_probe.c)
+
+set_target_properties(process_probe PROPERTIES
+    PREFIX "lib"
+    SUFFIX ".so"
+)
+
+target_link_libraries(process_probe PRIVATE log)

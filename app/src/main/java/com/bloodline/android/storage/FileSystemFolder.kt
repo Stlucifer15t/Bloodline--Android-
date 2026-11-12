@@ -22,9 +22,12 @@ class FileSystemFolder(
         // which is normal for some legacy public paths on Android 11+.
         val children = directory.listFiles() ?: return emptyList()
         return children.map { child ->
-            StorageEntry(name = child.name, isDirectory = child.isDirectory) {
-                FileSystemFolder(child)
-            }
+            StorageEntry(
+                name = child.name,
+                isDirectory = child.isDirectory,
+                open = { FileSystemFolder(child) },
+                read = { runCatching { child.inputStream() }.getOrNull() },
+            )
         }
     }
 }

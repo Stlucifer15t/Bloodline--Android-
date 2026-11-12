@@ -284,6 +284,49 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <!--
+                The runtime is downloaded rather than bundled, so there has to
+                be a way to fetch it that the launch gate cannot close. The
+                Launch button is disabled until the game files exist; this one
+                is not, because the runtime has nothing to do with them.
+            -->
+            <Button
+                android:id="@+id/runtimeInstallButton"
+                style="@style/Widget.Bloodlines.OutlineButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_3"
+                android:text="@string/runtime_install_action"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <!-- Feedback for the download, next to the button that started it. -->
+            <LinearLayout
+                android:id="@+id/runtimeInstallProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_3"
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <ProgressBar
+                    android:id="@+id/runtimeInstallProgressBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:indeterminate="true" />
+
+                <TextView
+                    android:id="@+id/runtimeInstallProgressText"
+                    style="@style/Text.RowDetail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_2"
+                    tools:text="Wine 11.3\n42% of this package · 1 of 2" />
+
+            </LinearLayout>
+
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider_height"
@@ -573,7 +616,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_8"
             android:gravity="center"
-            tools:text="Milestone 1 · foundation build 0.1.0" />
+            tools:text="Milestone 2 · runtime foundation build 0.2.0" />
 
         <TextView
             style="@style/Text.Caption"

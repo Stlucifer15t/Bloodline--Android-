@@ -67,6 +67,31 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Check the version code was bumped
+        # Android treats two APKs with the same versionCode as the same build,
+        # so a change that does not bump it cannot be installed over the
+        # previous APK. This fails the build rather than shipping an APK the
+        # user has to uninstall first.
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${{ github.event.pull_request.base.ref || 'main' }}" --depth=1
+          code() {
+            git show "$1:gradle/libs.versions.toml" \
+              | grep -E '^versionCode = ' | head -n1 | grep -oE '[0-9]+'
+          }
+          HEAD_CODE="$(code HEAD)"
+          BASE_CODE="$(code FETCH_HEAD)"
+          echo "versionCode: base=$BASE_CODE head=$HEAD_CODE"
+          if [ -z "$HEAD_CODE" ] || [ -z "$BASE_CODE" ]; then
+            echo "::error::Could not read versionCode from gradle/libs.versions.toml"
+            exit 1
+          fi
+          if [ "$HEAD_CODE" -le "$BASE_CODE" ]; then
+            echo "::error::versionCode is $HEAD_CODE but ${{ github.event.pull_request.base.ref || 'main' }} is already at $BASE_CODE."
+            echo "::error::Bump versionCode (and versionName) in gradle/libs.versions.toml so this APK installs as an update."
+            exit 1
+          fi
+
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
@@ -75,6 +100,79 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee gradle-tests.log
+
+      - name: Report how many unit tests ran
+        # "BUILD SUCCESSFUL" does not say over how many tests. The count is read
+        # from the XML the test task writes, because that is the only place it
+        # exists, and printed into the job summary so that a change which
+        # quietly stops running tests is visible rather than assumed away.
+        #
+        # Deliberately before the upstream step: that one re-runs the same task
+        # with a --tests filter, which replaces the results directory with a
+        # single file.
+        if: always()
+        run: python3 tools/test-summary.py app/build/test-summary.md | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the upstream packages really download and unpack
+        # The only step that fetches the actual Wine and WoW64 packages from
+        # their pinned URLs. Everything else in the suite runs against data we
+        # wrote, and three things about these packages were inferred from
+        # reading other people's source rather than observed: the container
+        # format behind the private `.wcp` extension, the internal layout, and
+        # the name and location of the WoW64 DLL. This replaces inference with
+        # observation, and prints the real checksums and layout so they can be
+        # pinned rather than guessed.
+        #
+        # Non-blocking on purpose: it depends on GitHub's release host being
+        # reachable, and a network hiccup must not fail a build whose APKs are
+        # fine. The report is the deliverable, and it is in the job log either
+        # way. Wine is 226 MB, so it is fetched only on a manual dispatch.
+        id: upstream
+        continue-on-error: true
+        env:
+          BLOODLINE_VERIFY_PACKAGES: "1"
+          BLOODLINE_VERIFY_WINE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest \
+            --tests "*UpstreamPackageVerificationTest*" 2>&1 | tee gradle-upstream.log
+
+      - name: Publish the upstream package report
+        # The report is written to a file because Gradle hides test output, and
+        # posted as a comment because this is the one channel a maintainer can
+        # read without downloading an artifact. Manual dispatch only: it is the
+        # run that also fetches Wine, and a comment on every pull request would
+        # be noise.
+        if: github.event_name == 'workflow_dispatch' && always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPORT="app/build/upstream-packages.txt"
+          if [ ! -s "$REPORT" ]; then
+            echo "No upstream report was produced."
+            exit 0
+          fi
+          {
+            echo "### Upstream package verification"
+            echo
+            echo "Fetched from the pinned release URLs and installed through the real"
+            echo "acquisition path. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo '```'
+            cat "$REPORT"
+            echo '```'
+          } > /tmp/upstream-comment.md
+          # The test count travels with it: the job summary is the only other
+          # place it appears, and that is not readable from outside the run.
+          if [ -s app/build/test-summary.md ]; then
+            {
+              echo
+              cat app/build/test-summary.md
+            } >> /tmp/upstream-comment.md
+          fi
+          gh pr comment 8 --body-file /tmp/upstream-comment.md
 
       - name: Run Android lint
         id: lint

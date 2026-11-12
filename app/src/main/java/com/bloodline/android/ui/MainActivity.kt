@@ -27,6 +27,7 @@ import com.bloodline.android.databinding.ViewStatusRowBinding
 import com.bloodline.android.diagnostics.CrashReport
 import com.bloodline.android.diagnostics.DiagnosticsManager
 import com.bloodline.android.diagnostics.DiagnosticsProvider
+import com.bloodline.android.diagnostics.GpuInfo
 import com.bloodline.android.diagnostics.ReportBuilder
 import com.bloodline.android.diagnostics.ReportInputs
 import com.bloodline.android.diagnostics.SessionEnd
@@ -45,14 +46,27 @@ import com.bloodline.android.display.ResolutionCalculator
 import com.bloodline.android.display.describe
 import com.bloodline.android.runtime.BlockReason
 import com.bloodline.android.runtime.ComponentIds
+import com.bloodline.android.runtime.GameProcessManager
+import com.bloodline.android.runtime.GraphicsProbe
+import com.bloodline.android.runtime.InstallValidation
+import com.bloodline.android.runtime.InstallationValidator
 import com.bloodline.android.runtime.IntegrationStatus
 import com.bloodline.android.runtime.LaunchReadiness
 import com.bloodline.android.runtime.LaunchState
 import com.bloodline.android.runtime.ProbeCache
 import com.bloodline.android.runtime.NativeProbe
+import com.bloodline.android.runtime.ProcessProbe
+import com.bloodline.android.runtime.RuntimeCapabilities
+import com.bloodline.android.runtime.RuntimeCapabilitiesReader
 import com.bloodline.android.runtime.RuntimeComponent
+import com.bloodline.android.runtime.RuntimeDiagnostics
+import com.bloodline.android.runtime.RuntimeHost
+import com.bloodline.android.runtime.RuntimeManager
 import com.bloodline.android.runtime.RuntimeProbe
+import com.bloodline.android.runtime.PackagedRuntimeProvider
+import com.bloodline.android.runtime.RuntimeProviders
 import com.bloodline.android.runtime.RuntimeRegistry
+import com.bloodline.android.runtime.packaging.RuntimeAcquisition
 import com.bloodline.android.settings.FpsMeter
 import com.bloodline.android.settings.OrientationApplier
 import com.bloodline.android.settings.OrientationController
@@ -78,7 +92,7 @@ import java.util.concurrent.Executors
  * Windows compatibility runtime has got. The launch button is driven entirely by
  * [LaunchReadiness] and stays disabled until that says otherwise.
  */
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var gameFolderStore: GameFolderStore
@@ -124,8 +138,45 @@ class MainActivity : AppCompatActivity() {
     /** Measured capabilities of this device, from the runtime probe. */
     private var runtimeProbeResult: RuntimeProbe.Result? = null
 
+    /** Which route to the GPU this device has, measured rather than assumed. */
+    private var graphicsProbeResult: GraphicsProbe.Result? = null
+
+    /** Whether a Wine process tree could survive here, and under what limit. */
+    private var processProbeResult: ProcessProbe.Result? = null
+
+    /** Everything the runtime knows about this device, assembled from probes. */
+    private var capabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
+
+    /** GL renderer and GLES version, read from an EGL context off the main thread. */
+    private var glRenderer: String = ""
+    private var glesVersion: String = ""
+
+    /**
+     * Owns the launch lifecycle.
+     *
+     * The activity's whole contribution is the four callbacks below; every
+     * decision is made inside the runtime, which is what keeps this class a
+     * screen rather than a launcher.
+     *
+     * The runtime is wired to a real provider here, so the Launch button is
+     * governed by what is actually installed on this device rather than by
+     * what the APK happens to contain.
+     */
+    private val runtimeHost by lazy {
+        RuntimeHost(
+            host = this,
+            manager = RuntimeProviders.manager(this),
+        )
+    }
+
+    /** What reading the executable's header said, or null when not yet read. */
+    private var installValidation: InstallValidation? = null
+
     private val probeCache: ProbeCache by lazy { ProbeCache(this) }
     private var nativeHostingStatus: IntegrationStatus = IntegrationStatus.NOT_INTEGRATED
+
+    /** The last device measurement the runtime was given, or unknown. */
+    private var runtimeCapabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
 
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -204,8 +255,28 @@ class MainActivity : AppCompatActivity() {
             runRuntimeProbe()
         }
 
+        val cachedGraphics = probeCache.load(PROBE_GRAPHICS, BuildConfig.VERSION_NAME)
+        if (cachedGraphics != null) {
+            graphicsProbeResult =
+                GraphicsProbe.Result(cachedGraphics.exitCode, cachedGraphics.output)
+        } else {
+            runGraphicsProbe()
+        }
+
+        val cachedProcess = probeCache.load(PROBE_PROCESS, BuildConfig.VERSION_NAME)
+        if (cachedProcess != null) {
+            processProbeResult =
+                ProcessProbe.Result(cachedProcess.exitCode, cachedProcess.output)
+        } else {
+            runProcessProbe()
+        }
+
+        // Whatever came from cache still has to reach the runtime.
+        refreshCapabilities()
+
         binding.importButton.setOnClickListener { folderPicker.launch(null) }
         binding.launchButton.setOnClickListener { onLaunchClicked() }
+        binding.runtimeInstallButton.setOnClickListener { offerRuntimeInstall() }
         binding.settingsButton.setOnClickListener {
             settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
         }
@@ -266,21 +337,51 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------ orientation
 
+    // -------------------------------------------------- RuntimeHost.Host seams
+    //
+    // These four are the entire coupling between the launcher and the runtime.
+    // The activity contributes the screen and nothing else: which backend is
+    // used, whether a launch is allowed and how a run ended are all decided
+    // inside RuntimeHost.
+
     /**
      * Hands the screen to the game.
      *
      * Landscape here is a requirement of the game, not a stored preference, so
      * it overrides whatever the launcher was doing and nothing in Settings can
-     * weaken it. Nothing calls this yet: it is the documented seam the runtime
-     * host will use when there is a game to launch.
+     * weaken it. Called by the runtime host only once a game process exists,
+     * and always paired with [exitGameplay].
      */
-    fun enterGameplay() = orientation.enterGameplay()
+    override fun enterGameplay() = runOnUiThread { orientation.enterGameplay() }
 
     /**
      * Takes the screen back after the game closes and restores whatever
      * orientation the launcher was using.
      */
-    fun exitGameplay() = orientation.exitGameplay()
+    override fun exitGameplay() = runOnUiThread { orientation.exitGameplay() }
+
+    /**
+     * Every callback below hops to the UI thread, because none of them is
+     * called from it any more.
+     *
+     * Bringing Wine up runs `wineboot`, which takes a minute or two on a
+     * mid-range phone and has to happen off the main thread. That moves the
+     * launch off it too, and with it every callback the runtime makes.
+     */
+    override fun onPhaseChanged(phase: RuntimeManager.Phase) = runOnUiThread {
+        if (isFinishing || isDestroyed) return@runOnUiThread
+        binding.launchHint.text = RuntimeDiagnostics.describePhase(phase)
+    }
+
+    override fun onFinished(message: String) = runOnUiThread {
+        showMessage(message)
+        updateLaunchState()
+    }
+
+    override fun onError(message: String) = runOnUiThread {
+        showMessage(message)
+        updateLaunchState()
+    }
 
     // ---------------------------------------------------------------- content
 
@@ -374,11 +475,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Components with the live, device measured status folded in. */
-    private fun runtimeComponents() =
-        RuntimeRegistry.components(nativeHosting = nativeHostingStatus)
+    private fun runtimeComponents() = RuntimeRegistry.forProvider(
+        provider = runtimeProvider,
+        capabilities = runtimeCapabilities,
+        nativeHosting = nativeHostingStatus,
+        // Detection itself is implemented and works; what is missing is the
+        // game, and that is the user's to provide.
+        storage = if (install != null && install!!.isComplete) {
+            IntegrationStatus.READY
+        } else {
+            IntegrationStatus.NOT_INTEGRATED
+        },
+    )
 
     private fun bindRuntimeRows() {
-        val components = runtimeComponents().associateBy { it.id }
+        val all = runtimeComponents()
+        val components = all.associateBy { it.id }
 
         bindStatusRow(
             binding.runtimeOverall,
@@ -386,7 +498,7 @@ class MainActivity : AppCompatActivity() {
                 id = "overall",
                 title = getString(R.string.runtime_overall_label),
                 detail = getString(R.string.runtime_overall_detail),
-                status = RuntimeRegistry.overallStatus(),
+                status = RuntimeRegistry.overallOf(all),
             ),
         )
         bindNativeRow(component(components, ComponentIds.NATIVE_HOSTING))
@@ -474,6 +586,167 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Reads the executable's PE header to confirm the folder holds the real
+     * 32-bit Windows game.
+     *
+     * Why this exists at all: [GameInstallScanner] matches on the *name*
+     * `Vampire.exe`, which cannot tell the game from a 64-bit build, a Linux
+     * binary, or a truncated download. Wine would refuse all three, so the
+     * launcher says so before the user presses Launch rather than after.
+     *
+     * Read-only, and only ever read-only — the stream comes from
+     * [StorageEntry.stream], so nothing here can write to the user's game
+     * folder.
+     */
+    private fun validateInstall(found: GameInstall?) {
+        if (found == null) {
+            installValidation = null
+            runtimeHost.setValidation(null)
+            updateLaunchState()
+            return
+        }
+
+        // Opening a SAF tree and reading a few KB is real I/O, so it goes to the
+        // background thread the scan already uses.
+        background.execute {
+            val result = runCatching {
+                val folder = StorageLocations.openFolder(this, found.location)
+                    ?: return@runCatching InstallValidation.Invalid(
+                        path = found.location.displayPath,
+                        reason = "That folder can no longer be opened. The permission " +
+                            "may have been revoked, or the card removed.",
+                    )
+
+                val entries = folder.entries().associate { it.name to it.isDirectory }
+                val executable = folder.entries().firstOrNull {
+                    it.name == InstallationValidator.EXECUTABLE_NAME && !it.isDirectory
+                }
+                val stream = executable?.stream()
+                    ?: return@runCatching InstallValidation.Invalid(
+                        path = found.location.displayPath,
+                        reason = "The executable could not be opened for reading.",
+                    )
+
+                InstallationValidator.validate(
+                    path = found.location.displayPath,
+                    entries = entries,
+                    openExecutable = { stream },
+                )
+            }.getOrElse { error ->
+                InstallValidation.Invalid(
+                    path = found.location.displayPath,
+                    reason = "The executable could not be read (${error.message}).",
+                )
+            }
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                installValidation = result
+                runtimeHost.setValidation(result)
+                updateLaunchState()
+            }
+        }
+    }
+
+    /**
+     * Opens GPU device nodes and creates an EGL context, so it stays off the
+     * main thread - an EGL context belongs to the thread that made it.
+     */
+    private fun runGraphicsProbe() {
+        background.execute {
+            val result = GraphicsProbe.run(this)
+
+            // GL strings need an EGL context, and an EGL context belongs to
+            // the thread that created it, so they are read here.
+            val gpu = runCatching { GpuInfo.probe() }.getOrNull()
+            glRenderer = gpu?.renderer.orEmpty()
+            glesVersion = gpu?.glVersion.orEmpty()
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                probeCache.save(
+                    PROBE_GRAPHICS,
+                    BuildConfig.VERSION_NAME,
+                    ProbeCache.Snapshot(result.exitCode, result.output),
+                )
+                graphicsProbeResult = result
+                refreshCapabilities()
+            }
+        }
+    }
+
+    /** Forks a small process tree, so it stays off the main thread. */
+    private fun runProcessProbe() {
+        background.execute {
+            val result = ProcessProbe.run(this)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                probeCache.save(
+                    PROBE_PROCESS,
+                    BuildConfig.VERSION_NAME,
+                    ProbeCache.Snapshot(result.exitCode, result.output),
+                )
+                processProbeResult = result
+                refreshCapabilities()
+            }
+        }
+    }
+
+    /**
+     * Folds whatever the probes have said into one set of device facts.
+     *
+     * Called after each probe reports rather than once at the end: a probe that
+     * fails or is slow must not stop the others from being used. The reading
+     * itself lives in [RuntimeCapabilitiesReader], so this class never has to
+     * know what a `personality32` line means.
+     */
+    private fun refreshCapabilities() {
+        capabilities = RuntimeCapabilitiesReader.assemble(
+            runtimeOutput = runtimeProbeResult?.output.orEmpty(),
+            graphicsOutput = graphicsProbeResult?.output.orEmpty(),
+            processOutput = processProbeResult?.output.orEmpty(),
+            gpu = GpuInfo.Info(
+                vendor = "",
+                renderer = glRenderer,
+                glVersion = glesVersion,
+                shadingLanguageVersion = "",
+                eglVersion = "",
+            ),
+        )
+        runtimeHost.prepare(capabilities)
+        runtimeCapabilities = capabilities
+        showRuntimeSelection()
+        // The runtime rows and the launch gate both depend on what is
+        // installed, so they are re-evaluated once the device is measured.
+        bindRuntimeRows()
+        updateLaunchState()
+    }
+
+    /**
+     * Shows which backend the runtime would pick, and why.
+     *
+     * Worth showing even though nothing can launch: "which route would this
+     * device take?" is a device question with a real answer today, and the
+     * answer is what decides whether the Vulkan route is ever worth trying.
+     */
+    private fun showRuntimeSelection() {
+        val selection = runtimeHost.selection()
+        val backend = selection.graphics.backend ?: return
+
+        binding.runtimeGraphics.rowDetail.text = buildString {
+            append(getString(R.string.runtime_selection_prefix))
+            append(backend.title)
+            if (selection.graphics.wasFallback) append(getString(R.string.runtime_selection_fallback))
+            append(". ")
+            append(selection.graphics.reason)
+            append(" ")
+            append(getString(R.string.runtime_selection_translator, selection.translator.title))
+            append(" ")
+            append(getString(R.string.runtime_selection_audio, selection.audio.title))
+        }
+    }
+
     private fun onScanProgress(progress: ScanProgress) {
         binding.importProgress.isVisible = true
         binding.importProgressText.text = buildString {
@@ -499,6 +772,10 @@ class MainActivity : AppCompatActivity() {
     private fun onScanFinished(report: InstallScanReport) {
         val found = report.install
         install = found
+
+        // Reading the executable's header is cheap and it turns "a file called
+        // Vampire.exe exists" into "the 32-bit Windows executable is here".
+        validateInstall(found)
 
         val status = when {
             found == null -> IntegrationStatus.NOT_INTEGRATED
@@ -571,20 +848,69 @@ class MainActivity : AppCompatActivity() {
     private fun formatTimestamp(millis: Long): String =
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))
 
-    private fun updateLaunchState() {
-        val state = LaunchReadiness.evaluate(install, runtimeComponents())
+    /** Whether the runtime packages can be downloaded on this device at all. */
+    private fun runtimeIsAcquirable(): Boolean = RuntimeProviders.deviceAbi().startsWith("arm64")
 
-        binding.launchButton.isEnabled = state is LaunchState.Ready
+    private fun updateLaunchState() {
+        val state = launchState()
+
+        // Enabled for NeedsRuntime as well as Ready. Disabled there, it was
+        // impossible to reach the one thing that downloads the runtime, so the
+        // packages could never be acquired on any device.
+        binding.launchButton.isEnabled = state is LaunchState.Ready ||
+            state is LaunchState.NeedsRuntime
         binding.launchHint.text = when (state) {
             LaunchState.Ready -> getString(R.string.launch_ready)
+            LaunchState.NeedsRuntime -> getString(R.string.launch_needs_runtime)
             is LaunchState.Blocked -> getString(state.reason.messageRes())
         }
+        binding.launchButton.text = getString(
+            if (state is LaunchState.NeedsRuntime) R.string.launch_install_runtime
+            else R.string.launch_game,
+        )
+        updateRuntimeInstallButton()
     }
+
+    /**
+     * A route to the download that the launch gate cannot close.
+     *
+     * The Launch button is disabled while the game files are missing, so on a
+     * fresh install the only thing that fetched the runtime was a button the
+     * user could not press. The runtime has nothing to do with the game files,
+     * so it gets its own button in its own card instead of inheriting a gate
+     * that belongs to something else.
+     */
+    private fun updateRuntimeInstallButton() {
+        val missing = runtimeProvider.missing()
+        binding.runtimeInstallButton.isVisible = missing.isNotEmpty()
+        if (missing.isEmpty()) return
+
+        val acquirable = runtimeIsAcquirable()
+        binding.runtimeInstallButton.isEnabled = acquirable && !runtimeInstalling
+        binding.runtimeInstallButton.text = when {
+            runtimeInstalling -> getString(R.string.runtime_install_starting)
+            acquirable -> getString(
+                R.string.runtime_install_action,
+                formatSize(RuntimeProviders.acquisition(this).totalBytes()),
+            )
+            // Nothing to offer: every package is built for arm64. The launch
+            // hint already carries the reason.
+            else -> getString(R.string.runtime_install_unavailable)
+        }
+    }
+
+    private fun launchState(): LaunchState = LaunchReadiness.evaluate(
+        install = install,
+        components = runtimeComponents(),
+        validation = installValidation,
+        runtimeAcquirable = runtimeIsAcquirable(),
+    )
 
     private fun BlockReason.messageRes(): Int = when (this) {
         BlockReason.NO_GAME_FILES -> R.string.launch_locked_no_install
         BlockReason.INCOMPLETE_GAME_FILES -> R.string.launch_locked_incomplete
         BlockReason.RUNTIME_NOT_INTEGRATED -> R.string.launch_locked_no_runtime
+        BlockReason.INSTALL_NOT_VALIDATED -> R.string.launch_locked_not_validated
     }
 
     // ---------------------------------------------------------------- actions
@@ -788,10 +1114,132 @@ class MainActivity : AppCompatActivity() {
         // Defensive: the button is disabled unless LaunchReadiness reports
         // Ready, so a click while blocked can only come from an unexpected
         // state. Tell the user why instead of failing silently.
-        if (LaunchReadiness.evaluate(install, runtimeComponents()) !is LaunchState.Ready) {
-            Toast.makeText(this, binding.launchHint.text, Toast.LENGTH_SHORT).show()
+        when (val state = launchState()) {
+            // The runtime is acquired rather than bundled, so the first launch
+            // has to fetch it. That is a large download, so it is offered as a
+            // decision rather than started on a tap.
+            LaunchState.NeedsRuntime -> {
+                offerRuntimeInstall()
+                return
+            }
+
+            LaunchState.Ready -> Unit
+
+            is LaunchState.Blocked -> {
+                Toast.makeText(this, binding.launchHint.text, Toast.LENGTH_SHORT).show()
+                return
+            }
         }
-        // Launching itself is implemented together with the runtime container.
+
+        if (runtimeProvider.missing().isNotEmpty()) {
+            if (runtimeInstalling) {
+                showMessage(getString(R.string.runtime_install_already_running))
+            } else {
+                offerRuntimeInstall()
+            }
+            return
+        }
+
+        // Everything beyond this point is the runtime's, not the activity's:
+        // validate, prepare, initialise, hand the screen over, and give it back
+        // when the game ends. The Launch button stays disabled until the path
+        // above genuinely works.
+        //
+        // Off the main thread, and it has to be: this now runs `wine --version`,
+        // `wineboot` and a 32-bit program, each of which can take a minute or
+        // more on a phone. Calling it from a click handler would freeze the
+        // launcher for as long as Wine takes to come up.
+        binding.launchButton.isEnabled = false
+        background.execute {
+            val phase = runtimeHost.launch()
+            runOnUiThread {
+                if (phase !is RuntimeManager.Phase.InGame) {
+                    binding.launchButton.isEnabled = true
+                }
+                updateLaunchState()
+            }
+        }
+    }
+
+    // ------------------------------------------------- acquiring the runtime
+
+    /** Where the runtime's binaries come from, and whether they are present. */
+    private val runtimeProvider: PackagedRuntimeProvider by lazy { RuntimeProviders.packaged(this) }
+
+    /** Guards against two downloads racing each other. */
+    @Volatile
+    private var runtimeInstalling = false
+
+    private fun offerRuntimeInstall() {
+        val bytes = RuntimeProviders.acquisition(this).totalBytes()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.runtime_install_title)
+            .setMessage(getString(R.string.runtime_install_message, formatSize(bytes)))
+            .setNegativeButton(R.string.runtime_install_negative, null)
+            .setPositiveButton(R.string.runtime_install_positive) { _, _ -> installRuntime() }
+            .show()
+    }
+
+    private fun installRuntime() {
+        val acquisition = RuntimeProviders.acquisition(this)
+        runtimeInstalling = true
+        setRuntimeInstallUi(true, getString(R.string.runtime_install_starting))
+        updateRuntimeInstallButton()
+
+        background.execute {
+            val outcome = runCatching {
+                acquisition.installAll(onProgress = { progress ->
+                    runOnUiThread { onRuntimeInstallProgress(progress) }
+                })
+            }.getOrElse { error ->
+                RuntimeAcquisition.Outcome.Failed(
+                    getString(R.string.runtime_install_title),
+                    error.message ?: error::class.simpleName.orEmpty(),
+                )
+            }
+
+            runOnUiThread {
+                runtimeInstalling = false
+                setRuntimeInstallUi(false, null)
+                onRuntimeInstalled(outcome)
+                // Recomputed, not restored. A failed download leaves a
+                // different state behind from the one the button was disabled
+                // for, and only one branch of onRuntimeInstalled recomputes it.
+                updateLaunchState()
+            }
+        }
+    }
+
+    private fun onRuntimeInstallProgress(progress: RuntimeAcquisition.Progress) {
+        binding.runtimeInstallProgressBar.isIndeterminate = progress.percent <= 0
+        if (progress.percent > 0) binding.runtimeInstallProgressBar.progress = progress.percent
+        binding.runtimeInstallProgressText.text = getString(
+            R.string.runtime_install_progress,
+            progress.pack.name,
+            progress.percent,
+            progress.index + 1,
+            progress.total,
+        )
+    }
+
+    private fun onRuntimeInstalled(outcome: RuntimeAcquisition.Outcome) {
+        when (outcome) {
+            is RuntimeAcquisition.Outcome.Installed -> showMessage(getString(R.string.runtime_install_done))
+            is RuntimeAcquisition.Outcome.Failed -> showMessage(
+                getString(R.string.runtime_install_failed, outcome.packageName, outcome.reason),
+            )
+            RuntimeAcquisition.Outcome.Cancelled -> showMessage(
+                getString(R.string.runtime_install_cancelled),
+            )
+            RuntimeAcquisition.Outcome.NothingToDo -> Unit
+        }
+    }
+
+    private fun setRuntimeInstallUi(active: Boolean, text: String?) {
+        binding.runtimeInstallProgress.isVisible = active
+        binding.launchButton.isEnabled = !active && binding.launchButton.isEnabled
+        if (text != null) binding.runtimeInstallProgressText.text = text
+        binding.runtimeInstallProgressBar.isIndeterminate = true
     }
 
     // ------------------------------------------------------------ diagnostics
@@ -874,13 +1322,27 @@ class MainActivity : AppCompatActivity() {
     /** Everything a report should describe, gathered here where it is known. */
     private fun reportInputs() = ReportInputs(
         settings = settings.snapshot(),
-        runtime = runtimeComponents().associate { component ->
-            component.title to getString(component.status.labelRes())
-        },
+        runtime = runtimeFacts(),
         install = installFacts(),
         nativeProbe = nativeProbeResult?.output,
         runtimeProbe = runtimeProbeResult?.output,
     )
+
+    /**
+     * The runtime section of a report.
+     *
+     * Starts from the component statuses and adds what the runtime itself
+     * decided: which graphics backend, which CPU translator, which audio
+     * bridge, and whether the executable was validated. Absent components
+     * are written down as absent, so a reader cannot mistake an unfinished
+     * runtime for a working one.
+     */
+    private fun runtimeFacts(): Map<String, String> = buildMap {
+        runtimeComponents().forEach { component ->
+            put(component.title, getString(component.status.labelRes()))
+        }
+        putAll(runtimeHost.diagnosticsSection(capabilities = capabilities))
+    }
 
     /**
      * What we know about the game files.
@@ -1029,5 +1491,7 @@ class MainActivity : AppCompatActivity() {
         /** Cache keys for the two bundled probes. */
         const val PROBE_NATIVE = "native"
         const val PROBE_RUNTIME = "runtime"
+        const val PROBE_GRAPHICS = "graphics"
+        const val PROBE_PROCESS = "process"
     }
 }
