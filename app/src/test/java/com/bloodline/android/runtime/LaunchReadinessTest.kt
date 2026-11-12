@@ -36,6 +36,67 @@ class LaunchReadinessTest {
         ),
     )
 
+    /**
+     * The end state this milestone is building towards: a complete
+     * installation, a validated executable, and every runtime component
+     * genuinely present.
+     *
+     * The gate opens here and nowhere else — and it only opens because
+     * [RuntimeRegistry] derives its statuses from what is actually installed.
+     */
+    @Test
+    fun `opens when the runtime is installed and everything else checks out`() {
+        val provider = StaticRuntimeProvider(
+            installed = setOf("wine-11.3-arm64ec", "wowbox64"),
+        )
+        val components = RuntimeRegistry.forProvider(
+            provider = provider,
+            capabilities = RuntimeCapabilities(
+                abis = listOf("arm64-v8a"),
+                glesVersion = "OpenGL ES 3.2",
+                measured = true,
+            ),
+            nativeHosting = IntegrationStatus.READY,
+            storage = IntegrationStatus.READY,
+        )
+
+        val state = LaunchReadiness.evaluate(
+            install = install(complete = true),
+            components = components,
+            validation = validatedInstall(),
+        )
+
+        assertEquals(
+            components.filter { it.status != IntegrationStatus.READY }
+                .joinToString { it.id },
+            LaunchState.Ready,
+            state,
+        )
+    }
+
+    @Test
+    fun `stays closed when the runtime is installed but its files are gone`() {
+        // A marker file is a record, not a binary.
+        val provider = StaticRuntimeProvider(
+            installed = setOf("wine-11.3-arm64ec", "wowbox64"),
+            missingFiles = listOf("The WoW64 layer was not found."),
+        )
+        val components = RuntimeRegistry.forProvider(
+            provider = provider,
+            capabilities = RuntimeCapabilities(measured = true),
+            nativeHosting = IntegrationStatus.READY,
+            storage = IntegrationStatus.READY,
+        )
+
+        val state = LaunchReadiness.evaluate(
+            install = install(complete = true),
+            components = components,
+            validation = validatedInstall(),
+        )
+
+        assertEquals(LaunchState.Blocked(BlockReason.RUNTIME_NOT_INTEGRATED), state)
+    }
+
     @Test
     fun `blocks when no game files are present`() {
         val state = LaunchReadiness.evaluate(

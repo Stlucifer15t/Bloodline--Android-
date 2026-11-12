@@ -1,0 +1,172 @@
+package com.bloodline.android.runtime
+
+import com.bloodline.android.runtime.audio.AudioConfiguration
+import com.bloodline.android.runtime.backends.AudioBridge
+import com.bloodline.android.runtime.backends.CpuTranslator
+import com.bloodline.android.runtime.backends.GraphicsBackend
+import com.bloodline.android.runtime.graphics.GraphicsConfiguration
+import com.bloodline.android.runtime.graphics.RegistrySetting
+import com.bloodline.android.runtime.packaging.RuntimeLayout
+import com.bloodline.android.runtime.packaging.RuntimePackageCatalog
+import com.bloodline.android.runtime.packaging.RuntimePackageStore
+import java.io.File
+import java.io.IOException
+
+/**
+ * Assembles the command and environment that start `Vampire.exe`, and the
+ * steps that have to happen before it can be started.
+ *
+ * This is the object that turns a stack of decisions — which Wine flavour,
+ * which translator, which graphics backend, which texture route, which audio
+ * bridge — into one command line and one environment map. Everything it
+ * produces is a value, so the whole of it can be inspected and tested without
+ * a device and without executing anything.
+ *
+ * The distinction this class is careful about, because it is the one that
+ * matters most: **building a command is not starting a process, and finding a
+ * binary is not running it.** [plan] returns a plan together with everything
+ * that is missing; it does not claim the plan will work.
+ */
+class RuntimeLauncher(
+    private val store: RuntimePackageStore,
+    private val layout: RuntimeLayout = RuntimeLayout(store),
+) {
+
+    /** Everything needed to start the game, or the reasons it cannot be. */
+    data class LaunchPlan(
+
+        /** The argument vector. Empty when the plan is not viable. */
+        val command: List<String>,
+
+        /** The complete environment for the guest process. */
+        val environment: Map<String, String>,
+
+        /** Directory the process should start in: the game's own folder. */
+        val workingDirectory: String,
+
+        /** Registry settings to apply to the prefix before the game starts. */
+        val registrySettings: List<RegistrySetting>,
+
+        /** What is missing. Empty means the plan is viable. */
+        val missing: List<String>,
+
+        /** The decisions the plan was built from, for the report. */
+        val flavour: WineFlavour,
+        val translator: CpuTranslator,
+        val graphics: GraphicsConfiguration,
+        val audio: AudioConfiguration,
+    ) {
+        val isViable: Boolean get() = missing.isEmpty() && command.isNotEmpty()
+    }
+
+    /** What preparing the prefix did. */
+    sealed interface Preparation {
+        data object Ready : Preparation
+        data class Failed(val reason: String) : Preparation
+    }
+
+    /**
+     * Copies the WoW64 layer into the prefix.
+     *
+     * This is the step that makes a 32-bit executable runnable, and it is easy
+     * to miss: Wine looks for the DLL named by `HODLL` in
+     * `drive_c/windows/system32`, so a WOWBox64 package unpacked neatly into
+     * its own directory does nothing until this copy happens.
+     *
+     * @return [Preparation.Ready], or [Preparation.Failed] naming the reason.
+     */
+    fun installWow64Layer(flavour: WineFlavour): Preparation {
+        if (!flavour.usesWow64Layer) return Preparation.Ready
+
+        val source = layout.wow64Dll(flavour)
+            ?: return Preparation.Failed(
+                "The WoW64 layer ${flavour.wow64DllName} was not found in the " +
+                    "${RuntimePackageCatalog.WOWBOX64.name} package.",
+            )
+
+        val targetDirectory = layout.wow64TargetDirectory()
+        if (!targetDirectory.isDirectory && !targetDirectory.mkdirs()) {
+            return Preparation.Failed(
+                "The prefix's ${targetDirectory.name} directory could not be created.",
+            )
+        }
+
+        val target = File(targetDirectory, flavour.wow64DllName)
+        return try {
+            source.copyTo(target, overwrite = true)
+            Preparation.Ready
+        } catch (error: IOException) {
+            Preparation.Failed("Copying ${source.name} into the prefix failed: ${error.message}")
+        } catch (error: SecurityException) {
+            Preparation.Failed("Copying ${source.name} into the prefix was refused.")
+        }
+    }
+
+    /**
+     * Builds the launch plan.
+     *
+     * @param validation  the validated installation, which supplies the game
+     *                    directory and the executable name.
+     */
+    fun plan(
+        validation: InstallValidation.Valid,
+        flavour: WineFlavour = WineFlavour.DEFAULT,
+        translator: CpuTranslator = CpuTranslator.recommendedFor(RuntimeCapabilities.unknown()),
+        backend: GraphicsBackend,
+        capabilities: RuntimeCapabilities,
+        audio: AudioBridge = AudioBridge.recommendedFor(capabilities),
+    ): LaunchPlan {
+        val gameDirectory = File(validation.install.executablePath).parentFile.absolutePath
+        val executableName = File(validation.install.executablePath).name
+
+        val graphics = GraphicsConfiguration.forBackend(backend, capabilities)
+        val audioConfiguration = AudioConfiguration(bridge = audio)
+
+        val wine = WineEnvironment(
+            runtimeRoot = store.root.absolutePath,
+            flavour = flavour,
+            wineLoader = layout.wineLoader(flavour)?.absolutePath.orEmpty(),
+            gameDirectory = gameDirectory,
+            executableName = executableName,
+        )
+
+        val environment = buildMap {
+            putAll(wine.environment())
+            putAll(
+                wine.withRuntimePaths(
+                    wineBin = layout.wineBinDir(flavour)?.absolutePath.orEmpty(),
+                    libDirs = layout.libDirs(flavour).map { it.absolutePath },
+                ),
+            )
+            putAll(graphics.environment())
+            putAll(audioConfiguration.environment(store.root))
+        }
+
+        val command = wine.launchCommand(emulatorBinary = layout.emulatorBinary()?.absolutePath)
+
+        val missing = buildList {
+            addAll(layout.missingFiles(flavour))
+            if (validation.install.executablePath.isBlank()) {
+                add("The installation names no executable to start.")
+            }
+        }
+
+        return LaunchPlan(
+            command = if (missing.isEmpty()) command else emptyList(),
+            environment = environment,
+            workingDirectory = gameDirectory,
+            registrySettings = graphics.registrySettings() + audioConfiguration.registrySettings(),
+            missing = missing,
+            flavour = flavour,
+            translator = translator,
+            graphics = graphics,
+            audio = audioConfiguration,
+        )
+    }
+
+    /** The `wine reg add` commands that apply [plan]'s registry settings. */
+    fun registryCommands(plan: LaunchPlan): List<List<String>> {
+        val loader = layout.wineLoader(plan.flavour)?.absolutePath ?: return emptyList()
+        return plan.registrySettings.map { it.toCommand(loader) }
+    }
+}

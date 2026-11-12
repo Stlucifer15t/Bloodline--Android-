@@ -289,7 +289,10 @@ class ArchiveExtractorTest {
         // magic-byte sniff as well as the decompression.
         val plain = tar("bin/wine64" to "wine", "share/wine/wine.inf" to "[Version]")
         val compressed = temporary.newFile("package.wcp")
-        org.tukaani.xz.XZOutputStream(compressed.outputStream().buffered()).use { out ->
+        org.tukaani.xz.XZOutputStream(
+            compressed.outputStream().buffered(),
+            org.tukaani.xz.LZMA2Options(),
+        ).use { out ->
             out.write(plain.readBytes())
         }
         val target = target("tar-xz")

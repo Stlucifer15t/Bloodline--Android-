@@ -63,7 +63,10 @@ import com.bloodline.android.runtime.RuntimeDiagnostics
 import com.bloodline.android.runtime.RuntimeHost
 import com.bloodline.android.runtime.RuntimeManager
 import com.bloodline.android.runtime.RuntimeProbe
+import com.bloodline.android.runtime.PackagedRuntimeProvider
+import com.bloodline.android.runtime.RuntimeProviders
 import com.bloodline.android.runtime.RuntimeRegistry
+import com.bloodline.android.runtime.packaging.RuntimeAcquisition
 import com.bloodline.android.settings.FpsMeter
 import com.bloodline.android.settings.OrientationApplier
 import com.bloodline.android.settings.OrientationController
@@ -154,14 +157,26 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      * The activity's whole contribution is the four callbacks below; every
      * decision is made inside the runtime, which is what keeps this class a
      * screen rather than a launcher.
+     *
+     * The runtime is wired to a real provider here, so the Launch button is
+     * governed by what is actually installed on this device rather than by
+     * what the APK happens to contain.
      */
-    private val runtimeHost by lazy { RuntimeHost(host = this) }
+    private val runtimeHost by lazy {
+        RuntimeHost(
+            host = this,
+            manager = RuntimeProviders.manager(this),
+        )
+    }
 
     /** What reading the executable's header said, or null when not yet read. */
     private var installValidation: InstallValidation? = null
 
     private val probeCache: ProbeCache by lazy { ProbeCache(this) }
     private var nativeHostingStatus: IntegrationStatus = IntegrationStatus.NOT_INTEGRATED
+
+    /** The last device measurement the runtime was given, or unknown. */
+    private var runtimeCapabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
 
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -451,8 +466,18 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     }
 
     /** Components with the live, device measured status folded in. */
-    private fun runtimeComponents() =
-        RuntimeRegistry.components(nativeHosting = nativeHostingStatus)
+    private fun runtimeComponents() = RuntimeRegistry.forProvider(
+        provider = runtimeProvider,
+        capabilities = runtimeCapabilities,
+        nativeHosting = nativeHostingStatus,
+        // Detection itself is implemented and works; what is missing is the
+        // game, and that is the user's to provide.
+        storage = if (install != null && install!!.isComplete) {
+            IntegrationStatus.READY
+        } else {
+            IntegrationStatus.NOT_INTEGRATED
+        },
+    )
 
     private fun bindRuntimeRows() {
         val components = runtimeComponents().associateBy { it.id }
@@ -680,7 +705,12 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             ),
         )
         runtimeHost.prepare(capabilities)
+        runtimeCapabilities = capabilities
         showRuntimeSelection()
+        // The runtime rows and the launch gate both depend on what is
+        // installed, so they are re-evaluated once the device is measured.
+        bindRuntimeRows()
+        updateLaunchState()
     }
 
     /**
@@ -1033,11 +1063,102 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             return
         }
 
+        // The runtime is acquired rather than bundled, so the very first launch
+        // has to fetch it. That is a large download and it must be a decision
+        // the user makes, not something that starts on a tap.
+        if (runtimeProvider.missing().isNotEmpty()) {
+            if (runtimeInstalling) {
+                showMessage(getString(R.string.runtime_install_already_running))
+            } else {
+                offerRuntimeInstall()
+            }
+            return
+        }
+
         // Everything beyond this point is the runtime's, not the activity's:
         // validate, prepare, initialise, hand the screen over, and give it back
         // when the game ends. The Launch button stays disabled until the path
         // above genuinely works.
         runtimeHost.launch()
+    }
+
+    // ------------------------------------------------- acquiring the runtime
+
+    /** Where the runtime's binaries come from, and whether they are present. */
+    private val runtimeProvider: PackagedRuntimeProvider by lazy { RuntimeProviders.packaged(this) }
+
+    /** Guards against two downloads racing each other. */
+    @Volatile
+    private var runtimeInstalling = false
+
+    private fun offerRuntimeInstall() {
+        val bytes = RuntimeProviders.acquisition(this).totalBytes()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.runtime_install_title)
+            .setMessage(getString(R.string.runtime_install_message, formatSize(bytes)))
+            .setNegativeButton(R.string.runtime_install_negative, null)
+            .setPositiveButton(R.string.runtime_install_positive) { _, _ -> installRuntime() }
+            .show()
+    }
+
+    private fun installRuntime() {
+        val acquisition = RuntimeProviders.acquisition(this)
+        runtimeInstalling = true
+        setRuntimeInstallUi(true, getString(R.string.runtime_install_starting))
+
+        background.execute {
+            val outcome = runCatching {
+                acquisition.installAll { progress ->
+                    runOnUiThread { onRuntimeInstallProgress(progress) }
+                }
+            }.getOrElse { error ->
+                RuntimeAcquisition.Outcome.Failed(
+                    getString(R.string.runtime_install_title),
+                    error.message ?: error::class.simpleName.orEmpty(),
+                )
+            }
+
+            runOnUiThread {
+                runtimeInstalling = false
+                setRuntimeInstallUi(false, null)
+                onRuntimeInstalled(outcome)
+            }
+        }
+    }
+
+    private fun onRuntimeInstallProgress(progress: RuntimeAcquisition.Progress) {
+        binding.importProgressBar.isIndeterminate = progress.percent <= 0
+        if (progress.percent > 0) binding.importProgressBar.progress = progress.percent
+        binding.importProgressText.text = getString(
+            R.string.runtime_install_progress,
+            progress.pack.name,
+            progress.percent,
+            progress.index + 1,
+            progress.total,
+        )
+    }
+
+    private fun onRuntimeInstalled(outcome: RuntimeAcquisition.Outcome) {
+        when (outcome) {
+            is RuntimeAcquisition.Outcome.Installed -> {
+                showMessage(getString(R.string.runtime_install_done))
+                updateLaunchState()
+            }
+            is RuntimeAcquisition.Outcome.Failed -> showMessage(
+                getString(R.string.runtime_install_failed, outcome.packageName, outcome.reason),
+            )
+            RuntimeAcquisition.Outcome.Cancelled -> showMessage(
+                getString(R.string.runtime_install_cancelled),
+            )
+            RuntimeAcquisition.Outcome.NothingToDo -> updateLaunchState()
+        }
+    }
+
+    private fun setRuntimeInstallUi(active: Boolean, text: String?) {
+        binding.importProgress.isVisible = active
+        binding.launchButton.isEnabled = !active && binding.launchButton.isEnabled
+        if (text != null) binding.importProgressText.text = text
+        binding.importProgressBar.isIndeterminate = true
     }
 
     // ------------------------------------------------------------ diagnostics

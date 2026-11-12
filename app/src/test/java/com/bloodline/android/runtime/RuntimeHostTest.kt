@@ -110,18 +110,45 @@ class RuntimeHostTest {
         val blocked = decision as RuntimeManager.LaunchDecision.No
         val checks = blocked.checks.associate { it.name to it.satisfied }
 
-        assertEquals(false, checks["Wine present"])
-        assertEquals(false, checks["CPU translation present"])
-        assertEquals(false, checks["Container present"])
-        assertEquals(false, checks["Graphics backend present"])
+        // With no provider the launcher cannot even ask, so it has one thing
+        // to report rather than a list of claims it cannot substantiate.
+        assertEquals(false, checks["Runtime provider"])
         assertEquals(true, checks["Installation validated"])
     }
 
     @Test
-    fun `the block reason names the first missing component`() {
+    fun `the block reason says the runtime has not been acquired yet`() {
         val decision = RuntimeManager().decide(validInstall()) as RuntimeManager.LaunchDecision.No
 
+        assertTrue(decision.reason.isNotBlank())
+    }
+
+    @Test
+    fun `a provider with everything installed names the packages that are not`() {
+        // The gate now asks the provider rather than asserting from the build,
+        // so "what is missing" is a real answer about this device.
+        val decision = RuntimeManager(
+            provider = StaticRuntimeProvider(installed = emptySet()),
+        ).decide(validInstall()) as RuntimeManager.LaunchDecision.No
+
+        val checks = decision.checks.associate { it.name to it.detail }
+        assertTrue(checks["Runtime packages installed"]!!.contains("Wine"))
         assertTrue(decision.reason.contains("Wine"))
+    }
+
+    @Test
+    fun `a provider that has everything still refuses when no files are there`() {
+        // Being recorded as installed is not the same as being usable. A
+        // marker file is a record, not a binary.
+        val decision = RuntimeManager(
+            provider = StaticRuntimeProvider(
+                installed = setOf("wine-11.3-arm64ec", "wowbox64"),
+                missingFiles = listOf("The WoW64 layer was not found."),
+            ),
+        ).decide(validInstall()) as RuntimeManager.LaunchDecision.No
+
+        assertEquals(true, decision.checks.first { it.name == "Runtime packages installed" }.satisfied)
+        assertEquals(false, decision.checks.first { it.name == "Runtime files found" }.satisfied)
     }
 
     // --------------------------------------------------------- the selection

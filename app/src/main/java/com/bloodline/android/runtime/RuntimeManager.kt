@@ -32,6 +32,22 @@ import com.bloodline.android.runtime.backends.GraphicsBackendSelector
  */
 class RuntimeManager(
     private val configuration: RuntimeConfiguration = RuntimeConfiguration(),
+
+    /**
+     * Where the runtime's binaries come from, or null when the launcher has
+     * not been given one.
+     *
+     * Null means "no runtime is available", which is the honest starting
+     * state: the gate below must not claim otherwise just because nothing has
+     * contradicted it.
+     */
+    private val provider: RuntimeProvider? = null,
+
+    /**
+     * Builds the command that starts the game, or null when the launcher has
+     * not been given a runtime to build one from.
+     */
+    private val launcher: RuntimeLauncher? = null,
 ) {
 
     private var capabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
@@ -41,6 +57,9 @@ class RuntimeManager(
     private var phase: Phase = Phase.Idle
 
     private var lastError: String? = null
+
+    /** The plan the last [start] would have executed, for the report. */
+    private var lastPlan: RuntimeLauncher.LaunchPlan? = null
 
     /** Where the lifecycle has got to. */
     fun phase(): Phase = phase
@@ -63,6 +82,9 @@ class RuntimeManager(
     fun cpuTranslator(): CpuTranslator = configuration.cpuTranslator
         ?: CpuTranslator.recommendedFor(capabilities)
 
+    /** The Wine flavour the launch would use. */
+    fun flavour(): WineFlavour = WineFlavour.DEFAULT
+
     /** The audio bridge this device would use. */
     fun audioBridge(): AudioBridge = configuration.audioBackend
         ?: AudioBridge.recommendedFor(capabilities)
@@ -78,34 +100,35 @@ class RuntimeManager(
     fun decide(validation: InstallValidation?): LaunchDecision {
         val checks = buildList {
             add(Check("Installation validated", validation is InstallValidation.Valid))
-            add(
-                Check(
-                    "Wine present",
-                    satisfied = false,
-                    detail = "No Wine build ships in this APK yet.",
-                ),
-            )
-            add(
-                Check(
-                    "CPU translation present",
-                    satisfied = false,
-                    detail = "No Box86/Box64/FEX binary ships in this APK yet.",
-                ),
-            )
-            add(
-                Check(
-                    "Container present",
-                    satisfied = false,
-                    detail = "No glibc userland or PRoot ships in this APK yet.",
-                ),
-            )
-            add(
-                Check(
-                    "Graphics backend present",
-                    satisfied = false,
-                    detail = "No Mesa build ships in this APK yet.",
-                ),
-            )
+            // The runtime is acquired, not bundled, so these are questions
+            // about what is installed on this device rather than statements
+            // about what the APK contains.
+            add(Check("Runtime provider", satisfied = provider != null))
+            if (provider != null) {
+                val missing = provider.missing()
+                add(
+                    Check(
+                        "Runtime packages installed",
+                        satisfied = missing.isEmpty(),
+                        detail = missing.firstOrNull(),
+                    ),
+                )
+                // Recorded as installed is not the same as usable: a marker
+                // file is a record, not a binary. This asks whether the files
+                // the launch needs actually resolve.
+                val flavour = flavour()
+                add(
+                    Check(
+                        "Runtime files found",
+                        satisfied = provider.isUsable(flavour),
+                        detail = if (provider.isUsable(flavour)) {
+                            null
+                        } else {
+                            "The runtime packages are installed but their files could not be found."
+                        },
+                    ),
+                )
+            }
         }
 
         val missing = checks.filter { !it.satisfied }
@@ -143,6 +166,21 @@ class RuntimeManager(
         }
 
         phase = Phase.Preparing
+
+        // The step that makes a 32-bit executable runnable: the WoW64 DLL has
+        // to be inside the prefix, in system32, or Wine finds nothing to host
+        // the game with.
+        val flavour = flavour()
+        when (val prepared = launcher?.installWow64Layer(flavour)) {
+            null -> Unit
+            is RuntimeLauncher.Preparation.Ready -> Unit
+            is RuntimeLauncher.Preparation.Failed -> {
+                lastError = prepared.reason
+                phase = Phase.Restored(prepared.reason)
+                return phase
+            }
+        }
+
         val graphics = graphicsSelection()
         val translator = cpuTranslator()
 
@@ -203,8 +241,27 @@ class RuntimeManager(
      */
     private fun commandFor(validation: InstallValidation?): List<String> {
         if (validation !is InstallValidation.Valid) return emptyList()
-        return emptyList()
+
+        val builder = launcher ?: return emptyList()
+        val plan = builder.plan(
+            validation = validation,
+            flavour = flavour(),
+            translator = cpuTranslator(),
+            backend = graphicsSelection().backend ?: return emptyList(),
+            capabilities = capabilities,
+            audio = audioBridge(),
+        )
+        lastPlan = plan
+
+        // An unviable plan produces no command at all. That is the mechanism
+        // which keeps the Launch button honest: the refusal happens here, next
+        // to its cause, rather than somewhere downstream where the reason has
+        // been lost.
+        return if (plan.isViable) plan.command else emptyList()
     }
+
+    /** The plan the last [start] built, or null. Includes unviable ones. */
+    fun plan(): RuntimeLauncher.LaunchPlan? = lastPlan
 
     /** One precondition, with the detail shown to the user when it fails. */
     data class Check(
