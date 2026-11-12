@@ -63,7 +63,9 @@ class ProcessRunnerTest {
         // the raw integer is what made a Wine crash look like a launcher bug.
         if (!hasShell()) return
 
-        val outcome = shell("kill -SEGV $$")
+        // $$ is the shell's own pid, and it needs escaping here or Kotlin
+        // reads it as the start of a string template.
+        val outcome = shell("kill -SEGV ${'$'}${'$'}")
 
         assertTrue(outcome is Outcome.Exited)
         assertEquals(139, (outcome as Outcome.Exited).exitCode)
