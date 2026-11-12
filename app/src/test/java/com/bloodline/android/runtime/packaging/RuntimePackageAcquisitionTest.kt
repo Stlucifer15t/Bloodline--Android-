@@ -294,7 +294,10 @@ class RuntimePackageAcquisitionTest {
         val second = first.copy(id = "test-wow64", target = "packages/test-wow64")
         val seen = mutableListOf<String>()
 
-        val outcome = acquisition.installAll(listOf(first, second)) { seen += it.toString() }
+        val outcome = acquisition.installAll(
+            listOf(first, second),
+            onProgress = { seen += it.toString() },
+        )
 
         assertEquals(RuntimeAcquisition.Outcome.Installed(2, 0), outcome)
         assertTrue(seen.isNotEmpty())
