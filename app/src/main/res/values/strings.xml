@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- No apostrophes anywhere in this file: aapt2 reads a bare one as the
+         start of an escape sequence and fails the resource flattening. -->
     <string name="app_name">Bloodlines</string>
 
     <!-- Header -->
@@ -103,6 +105,8 @@
     <!-- Launch -->
     <string name="launch_game">Launch Game</string>
     <string name="launch_ready">Runtime ready — tap to launch</string>
+    <string name="launch_needs_runtime">The compatibility runtime has not been downloaded yet — tap to fetch it</string>
+    <string name="launch_install_runtime">Install runtime</string>
     <string name="launch_locked_no_install">Import your game files to enable launch</string>
     <string name="launch_locked_incomplete">Game data folder missing — launch stays disabled</string>
     <string name="launch_locked_no_runtime">The compatibility runtime is not integrated yet — launch stays disabled</string>
@@ -118,6 +122,8 @@
     <string name="runtime_install_failed">Installing %1$s failed: %2$s</string>
     <string name="runtime_install_cancelled">The download was cancelled.</string>
     <string name="runtime_install_already_running">The runtime is already downloading.</string>
+    <string name="runtime_install_action">Download runtime · %1$s</string>
+    <string name="runtime_install_unavailable">Runtime not available on this device</string>
     <string name="runtime_install_progress">%1$s\n%2$d%% of this package · %3$d of %4$d</string>
 
     <plurals name="install_search_path_value">

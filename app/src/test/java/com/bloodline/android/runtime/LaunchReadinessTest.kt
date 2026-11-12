@@ -4,6 +4,7 @@ import com.bloodline.android.game.GameInstall
 import com.bloodline.android.game.GameLocation
 import com.bloodline.android.game.LocationKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
@@ -94,7 +95,7 @@ class LaunchReadinessTest {
             validation = validatedInstall(),
         )
 
-        assertEquals(LaunchState.Blocked(BlockReason.RUNTIME_NOT_INTEGRATED), state)
+        assertEquals(LaunchState.NeedsRuntime, state)
     }
 
     @Test
@@ -118,17 +119,17 @@ class LaunchReadinessTest {
     }
 
     @Test
-    fun `blocks while the runtime is not integrated`() {
+    fun `offers the download while the runtime is not installed`() {
         val state = LaunchReadiness.evaluate(
             install = install(complete = true),
             components = RuntimeRegistry.components(),
         )
 
-        assertEquals(LaunchState.Blocked(BlockReason.RUNTIME_NOT_INTEGRATED), state)
+        assertEquals(LaunchState.NeedsRuntime, state)
     }
 
     @Test
-    fun `blocks when only some components are ready`() {
+    fun `offers the download when only some components are ready`() {
         val state = LaunchReadiness.evaluate(
             install = install(complete = true),
             components = listOf(
@@ -138,14 +139,14 @@ class LaunchReadinessTest {
             ),
         )
 
-        assertEquals(LaunchState.Blocked(BlockReason.RUNTIME_NOT_INTEGRATED), state)
+        assertEquals(LaunchState.NeedsRuntime, state)
     }
 
     @Test
-    fun `blocks when there are no components at all`() {
+    fun `offers the download when there are no components at all`() {
         val state = LaunchReadiness.evaluate(install = install(complete = true), components = emptyList())
 
-        assertEquals(LaunchState.Blocked(BlockReason.RUNTIME_NOT_INTEGRATED), state)
+        assertEquals(LaunchState.NeedsRuntime, state)
     }
 
     @Test
@@ -173,7 +174,7 @@ class LaunchReadinessTest {
     }
 
     @Test
-    fun `stays blocked while native hosting has not been verified`() {
+    fun `offers the download while native hosting has not been verified`() {
         // Everything the registry can vouch for is ready, except the one thing
         // that is measured on the device.
         val components = RuntimeRegistry
@@ -182,6 +183,70 @@ class LaunchReadinessTest {
             .map { if (it.id == ComponentIds.NATIVE_HOSTING) it.copy(status = IntegrationStatus.NOT_INTEGRATED) else it }
 
         val state = LaunchReadiness.evaluate(install = install(complete = true), components = components)
+
+        assertEquals(LaunchState.NeedsRuntime, state)
+    }
+
+    private val allReady = RuntimeRegistry
+        .components(nativeHosting = IntegrationStatus.READY)
+        .map { it.copy(status = IntegrationStatus.READY) }
+
+    /**
+     * The bug this guards against shipped.
+     *
+     * The launch gate reported [LaunchState.Blocked] for a runtime that was
+     * merely absent, and the UI disables the button for every blocked state.
+     * The runtime is acquired rather than bundled, so that meant the one place
+     * which downloads it — reachable only by tapping that button — could not be
+     * reached on any device: the gate was closed by the very thing it was
+     * waiting for.
+     *
+     * A state the user can fix and a state the user cannot are different
+     * states, and only one of them may be rendered as a dead end.
+     */
+    @Test
+    fun `a runtime that is only missing is an offer, not a refusal`() {
+        val state = LaunchReadiness.evaluate(install = install(complete = true))
+
+        assertFalse(
+            "a package that has simply not been downloaded must not come back as a " +
+                "blocked state, because the UI disables the button for those and the " +
+                "download lives behind that button",
+            state is LaunchState.Blocked,
+        )
+        assertEquals(LaunchState.NeedsRuntime, state)
+    }
+
+    @Test
+    fun `the gates that a download cannot fix stay refusals`() {
+        // If every unmet prerequisite became an offer, the button would promise
+        // a download that cannot deliver a launch.
+        assertEquals(
+            LaunchState.Blocked(BlockReason.NO_GAME_FILES),
+            LaunchReadiness.evaluate(install = null),
+        )
+        assertEquals(
+            LaunchState.Blocked(BlockReason.INCOMPLETE_GAME_FILES),
+            LaunchReadiness.evaluate(install = install(complete = false)),
+        )
+        assertEquals(
+            LaunchState.Blocked(BlockReason.INSTALL_NOT_VALIDATED),
+            LaunchReadiness.evaluate(
+                install = install(complete = true),
+                components = allReady,
+                validation = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `a device that cannot run the packages gets the refusal, not the offer`() {
+        // Promising a 227 MB download to a device that cannot execute it is
+        // worse than saying why it cannot happen.
+        val state = LaunchReadiness.evaluate(
+            install = install(complete = true),
+            runtimeAcquirable = false,
+        )
 
         assertEquals(LaunchState.Blocked(BlockReason.RUNTIME_NOT_INTEGRATED), state)
     }

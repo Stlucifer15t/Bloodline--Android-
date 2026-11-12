@@ -284,6 +284,22 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <!--
+                The runtime is downloaded rather than bundled, so there has to
+                be a way to fetch it that the launch gate cannot close. The
+                Launch button is disabled until the game files exist; this one
+                is not, because the runtime has nothing to do with them.
+            -->
+            <Button
+                android:id="@+id/runtimeInstallButton"
+                style="@style/Widget.Bloodlines.OutlineButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_3"
+                android:text="@string/runtime_install_action"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider_height"

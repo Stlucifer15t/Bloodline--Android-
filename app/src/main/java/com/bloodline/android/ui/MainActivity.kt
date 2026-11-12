@@ -276,6 +276,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
         binding.importButton.setOnClickListener { folderPicker.launch(null) }
         binding.launchButton.setOnClickListener { onLaunchClicked() }
+        binding.runtimeInstallButton.setOnClickListener { offerRuntimeInstall() }
         binding.settingsButton.setOnClickListener {
             settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
         }
@@ -847,15 +848,63 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     private fun formatTimestamp(millis: Long): String =
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))
 
-    private fun updateLaunchState() {
-        val state = LaunchReadiness.evaluate(install, runtimeComponents(), installValidation)
+    /** Whether the runtime packages can be downloaded on this device at all. */
+    private fun runtimeIsAcquirable(): Boolean = RuntimeProviders.deviceAbi().startsWith("arm64")
 
-        binding.launchButton.isEnabled = state is LaunchState.Ready
+    private fun updateLaunchState() {
+        val state = launchState()
+
+        // Enabled for NeedsRuntime as well as Ready. Disabled there, it was
+        // impossible to reach the one thing that downloads the runtime, so the
+        // packages could never be acquired on any device.
+        binding.launchButton.isEnabled = state is LaunchState.Ready ||
+            state is LaunchState.NeedsRuntime
         binding.launchHint.text = when (state) {
             LaunchState.Ready -> getString(R.string.launch_ready)
+            LaunchState.NeedsRuntime -> getString(R.string.launch_needs_runtime)
             is LaunchState.Blocked -> getString(state.reason.messageRes())
         }
+        binding.launchButton.text = getString(
+            if (state is LaunchState.NeedsRuntime) R.string.launch_install_runtime
+            else R.string.launch_game,
+        )
+        updateRuntimeInstallButton()
     }
+
+    /**
+     * A route to the download that the launch gate cannot close.
+     *
+     * The Launch button is disabled while the game files are missing, so on a
+     * fresh install the only thing that fetched the runtime was a button the
+     * user could not press. The runtime has nothing to do with the game files,
+     * so it gets its own button in its own card instead of inheriting a gate
+     * that belongs to something else.
+     */
+    private fun updateRuntimeInstallButton() {
+        val missing = runtimeProvider.missing()
+        binding.runtimeInstallButton.isVisible = missing.isNotEmpty()
+        if (missing.isEmpty()) return
+
+        val acquirable = runtimeIsAcquirable()
+        binding.runtimeInstallButton.isEnabled = acquirable && !runtimeInstalling
+        binding.runtimeInstallButton.text = when {
+            runtimeInstalling -> getString(R.string.runtime_install_starting)
+            acquirable -> getString(
+                R.string.runtime_install_action,
+                formatSize(RuntimeProviders.acquisition(this).totalBytes()),
+            )
+            // Nothing to offer: every package is built for arm64. The launch
+            // hint already carries the reason.
+            else -> getString(R.string.runtime_install_unavailable)
+        }
+    }
+
+    private fun launchState(): LaunchState = LaunchReadiness.evaluate(
+        install = install,
+        components = runtimeComponents(),
+        validation = installValidation,
+        runtimeAcquirable = runtimeIsAcquirable(),
+    )
 
     private fun BlockReason.messageRes(): Int = when (this) {
         BlockReason.NO_GAME_FILES -> R.string.launch_locked_no_install
@@ -1065,16 +1114,23 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         // Defensive: the button is disabled unless LaunchReadiness reports
         // Ready, so a click while blocked can only come from an unexpected
         // state. Tell the user why instead of failing silently.
-        if (LaunchReadiness.evaluate(install, runtimeComponents(), installValidation)
-            !is LaunchState.Ready
-        ) {
-            Toast.makeText(this, binding.launchHint.text, Toast.LENGTH_SHORT).show()
-            return
+        when (val state = launchState()) {
+            // The runtime is acquired rather than bundled, so the first launch
+            // has to fetch it. That is a large download, so it is offered as a
+            // decision rather than started on a tap.
+            LaunchState.NeedsRuntime -> {
+                offerRuntimeInstall()
+                return
+            }
+
+            LaunchState.Ready -> Unit
+
+            is LaunchState.Blocked -> {
+                Toast.makeText(this, binding.launchHint.text, Toast.LENGTH_SHORT).show()
+                return
+            }
         }
 
-        // The runtime is acquired rather than bundled, so the very first launch
-        // has to fetch it. That is a large download and it must be a decision
-        // the user makes, not something that starts on a tap.
         if (runtimeProvider.missing().isNotEmpty()) {
             if (runtimeInstalling) {
                 showMessage(getString(R.string.runtime_install_already_running))

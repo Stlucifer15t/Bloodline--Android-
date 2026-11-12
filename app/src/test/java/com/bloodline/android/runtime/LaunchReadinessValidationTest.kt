@@ -73,11 +73,26 @@ class LaunchReadinessValidationTest {
     @Test
     fun `the runtime gate is still reported first, because it is the real one`() {
         // Order decides which message the user sees. The runtime being unfinished
-        // is the actual state of this build, so it wins.
+        // is the actual state of this build, so it wins over the unchecked
+        // executable, and it wins as an offer to download rather than as a wall.
         val state = LaunchReadiness.evaluate(
             install = install(),
             components = RuntimeRegistry.components(),
             validation = null,
+        )
+
+        assertEquals(LaunchState.NeedsRuntime, state)
+    }
+
+    @Test
+    fun `the runtime gate becomes a wall again on a device that cannot run the packages`() {
+        // Offering a 227 MB download to a device that cannot execute it is worse
+        // than saying why it cannot happen, so the two are separate states.
+        val state = LaunchReadiness.evaluate(
+            install = install(),
+            components = RuntimeRegistry.components(),
+            validation = null,
+            runtimeAcquirable = false,
         )
 
         assertEquals(LaunchState.Blocked(BlockReason.RUNTIME_NOT_INTEGRATED), state)
