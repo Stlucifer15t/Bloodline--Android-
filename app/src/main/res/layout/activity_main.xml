@@ -580,6 +580,20 @@
 
             </LinearLayout>
 
+            <!--
+                Full width, because it is the one that matters when something
+                has gone wrong. A ZIP is the right thing to write to disk and
+                the wrong thing to paste into a message, and pasting is usually
+                the only way the person reading it can receive it.
+            -->
+            <Button
+                android:id="@+id/diagnosticsCopyButton"
+                style="@style/Widget.Bloodlines.OutlineButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_3"
+                android:text="@string/diagnostics_copy" />
+
         </LinearLayout>
 
         <!-- ============================== Launch =========================== -->

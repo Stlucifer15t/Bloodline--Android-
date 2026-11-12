@@ -33,6 +33,41 @@ class ReportArchiveTest {
         return archive.write(classification, mapOf(name to "content of $name"), logs)
     }
 
+    /**
+     * The zip is the right thing to write to disk and the wrong thing to paste
+     * into a conversation, and pasting is usually the only way the person who
+     * needs to read it can receive it. So the round trip is a real one: text
+     * in, zip on disk, text back out.
+     */
+    @Test
+    fun `a report can be read back as text, section by section`() {
+        val archive = archive()
+        now += 60_000
+        val written = archive.write(
+            SessionEnd.UNKNOWN,
+            linkedMapOf(
+                "summary.txt" to "the summary",
+                "wine.txt" to "Wine printed this",
+            ),
+        )
+
+        val text = archive.readText(written)
+
+        assertTrue(text.contains("===== summary.txt ====="))
+        assertTrue(text.contains("the summary"))
+        assertTrue(text.contains("===== wine.txt ====="))
+        assertTrue(text.contains("Wine printed this"))
+    }
+
+    @Test
+    fun `a report that holds nothing reads back as nothing`() {
+        val archive = archive()
+        now += 60_000
+        val written = archive.write(SessionEnd.CRASH, emptyMap())
+
+        assertEquals("", archive.readText(written))
+    }
+
     @Test
     fun `a report is a zip the user can open`() {
         val written = report(archive())

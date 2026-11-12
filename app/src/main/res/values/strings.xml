@@ -91,11 +91,13 @@
     <string name="diagnostics_generate">Generate</string>
     <string name="diagnostics_save">Save</string>
     <string name="diagnostics_share">Share</string>
+    <string name="diagnostics_copy">Copy report as text</string>
     <string name="diagnostics_delete">Delete</string>
     <string name="diagnostics_report_size">%1$s · %2$s</string>
     <string name="diagnostics_generated">Report written</string>
     <string name="diagnostics_saved">Report saved</string>
     <string name="diagnostics_deleted">Report deleted</string>
+    <string name="diagnostics_copied">Report copied to the clipboard (%1$s) — paste it into a message</string>
     <string name="diagnostics_nothing_to_share">There is no report to share yet</string>
     <string name="diagnostics_no_app">No app on this device can open a ZIP file</string>
     <string name="diagnostics_auto_generated">The last session did not close properly, so a report was written.</string>
