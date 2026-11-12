@@ -113,6 +113,9 @@
     <string name="launch_locked_incomplete">Game data folder missing — launch stays disabled</string>
     <string name="launch_locked_no_runtime">The compatibility runtime is not integrated yet — launch stays disabled</string>
     <string name="launch_locked_not_validated">Vampire.exe has not been verified as a 32-bit Windows executable yet — launch stays disabled</string>
+    <string name="launch_blocked_title">Why launch is disabled</string>
+    <string name="launch_blocked_checked_folder">Checked folder: %1$s</string>
+    <string name="launch_blocked_recheck">Check again</string>
 
     <!-- Runtime acquisition: the runtime is downloaded, never bundled. -->
     <string name="runtime_install_title">Install the compatibility runtime?</string>

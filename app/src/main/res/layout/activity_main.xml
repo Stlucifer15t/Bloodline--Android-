@@ -606,13 +606,23 @@
             android:enabled="false"
             android:text="@string/launch_game" />
 
+        <!--
+            Tappable: it is the only thing on screen that knows why the button
+            above it is off, so it opens the full reason. The selectable
+            background is what makes that discoverable — a line of grey text
+            that does something has to look like it does something.
+        -->
         <TextView
             android:id="@+id/launchHint"
             style="@style/Text.Caption"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_3"
+            android:background="?android:attr/selectableItemBackground"
             android:gravity="center"
+            android:minHeight="@dimen/row_min_height"
+            android:paddingStart="@dimen/space_2"
+            android:paddingEnd="@dimen/space_2"
             android:text="@string/launch_locked_no_runtime" />
 
         <Button

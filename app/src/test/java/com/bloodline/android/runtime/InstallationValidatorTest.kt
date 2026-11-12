@@ -165,6 +165,43 @@ class InstallationValidatorTest {
 
     // ---------------------------------------------------------- missing files
 
+    // ------------------------------------------------------------- case of names
+
+    @Test
+    fun `accepts an install whose names arrived in a different case`() {
+        // The scanner finds the folder with ignoreCase = true, so the validator
+        // has to match the same way. Windows ignores case and files copied
+        // through MTP or off a FAT card routinely arrive as VAMPIRE.EXE: those
+        // were reported as a complete install and then rejected here for
+        // missing both entries, which locked the launch with a message about
+        // verification rather than about naming.
+        val entries = mapOf(
+            "VAMPIRE" to true,
+            EXECUTABLE_NAME.uppercase() to false,
+        )
+
+        val result = validate(pe(machine = 0x014C, subsystem = 2), entries)
+
+        assertTrue(result is InstallValidation.Valid)
+    }
+
+    @Test
+    fun `still requires a directory where a directory is expected, whatever the case`() {
+        // Case is ignored, the kind of entry is not: a file called vampire and
+        // a folder called vampire.exe are no more usable than their correctly
+        // cased equivalents.
+        val entries = mapOf(
+            "vampire.exe" to true,
+            "vampire" to false,
+        )
+
+        val result = validate(pe(machine = 0x014C), entries)
+
+        val invalid = result as InstallValidation.Invalid
+        assertTrue(invalid.reason.contains("data folder"))
+        assertTrue(invalid.reason.contains("executable"))
+    }
+
     @Test
     fun `rejects a folder with no executable`() {
         val result = InstallationValidator.validate(

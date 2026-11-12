@@ -62,9 +62,7 @@ object InstallationValidator {
         entries: Map<String, Boolean>,
         openExecutable: () -> InputStream,
     ): InstallValidation {
-        val missing = REQUIRED_ENTRIES.filter { required ->
-            entries[required.name] != required.isDirectory
-        }
+        val missing = REQUIRED_ENTRIES.filter { required -> !hasEntry(entries, required) }
         if (missing.isNotEmpty()) {
             return InstallValidation.Invalid(
                 path = path,
@@ -103,11 +101,14 @@ object InstallationValidator {
         }
 
         if (header.machine != EXPECTED_MACHINE) {
+            // Shown under the Launch button, so it says what to do rather than
+            // only what went wrong.
             return InstallValidation.Invalid(
                 path = path,
-                reason = "This is a ${header.machine?.description ?: "unsupported"} " +
-                    "executable. Bloodlines is a 32-bit x86 game, and this build " +
-                    "needs the 32-bit Windows version.",
+                reason = "This executable is built for " +
+                    "${header.machine?.description ?: "an unsupported CPU"}. " +
+                    "Bloodlines is a 32-bit x86 game, and this build needs the " +
+                    "32-bit Windows version.",
                 detail = header.describe(),
             )
         }
@@ -239,6 +240,26 @@ object InstallationValidator {
     private const val COFF_HEADER_SIZE = 20
     private const val SUBSYSTEM_OFFSET = 68
     private const val MAX_HEADER_BYTES = 4096
+
+    /**
+     * Whether [entries] holds [required], comparing the name without case.
+     *
+     * Case is ignored because the scanner that chose this folder already
+     * ignores it: [com.bloodline.android.game.GameInstallScanner] matches
+     * `Vampire.exe` and `Vampire` with `ignoreCase = true`. Windows does not
+     * care about case either, and a copy made through MTP or off a FAT-formatted
+     * card routinely arrives as `VAMPIRE.EXE` / `VAMPIRE`.
+     *
+     * That mismatch was not cosmetic. The scanner happily reported a complete
+     * installation for such a folder, and this check then rejected the very
+     * same one for missing both entries — so the launcher sat there saying the
+     * files were found and, one card lower, that they had not been verified,
+     * with nothing on screen naming case as the reason.
+     */
+    private fun hasEntry(entries: Map<String, Boolean>, required: RequiredEntry): Boolean =
+        entries.any { (name, isDirectory) ->
+            name.equals(required.name, ignoreCase = true) && isDirectory == required.isDirectory
+        }
 
     /** Something that should be in the folder. */
     private data class RequiredEntry(

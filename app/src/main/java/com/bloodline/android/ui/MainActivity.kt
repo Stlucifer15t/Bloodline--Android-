@@ -302,6 +302,9 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
         binding.importButton.setOnClickListener { folderPicker.launch(null) }
         binding.launchButton.setOnClickListener { onLaunchClicked() }
+        // The hint is the only thing on screen that knows why the button above
+        // it is off, so it opens the full reason on a tap.
+        binding.launchHint.setOnClickListener { showLaunchBlockDetail() }
         binding.runtimeInstallButton.setOnClickListener { offerRuntimeInstall() }
         binding.settingsButton.setOnClickListener {
             settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
@@ -645,14 +648,27 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                             "may have been revoked, or the card removed.",
                     )
 
-                val entries = folder.entries().associate { it.name to it.isDirectory }
-                val executable = folder.entries().firstOrNull {
-                    it.name == InstallationValidator.EXECUTABLE_NAME && !it.isDirectory
+                // Listed once: over the Storage Access Framework every entry is
+                // a binder call, and the old code listed the folder twice to
+                // build the name map and then find the executable again.
+                val listed = folder.entries()
+                val entries = listed.associate { it.name to it.isDirectory }
+
+                // Matched without case, for the same reason the validator does
+                // the same: the scanner found this folder with ignoreCase, and
+                // an exact-match lookup here lost the file again on any copy
+                // that arrived as VAMPIRE.EXE.
+                val executable = listed.firstOrNull {
+                    it.name.equals(InstallationValidator.EXECUTABLE_NAME, ignoreCase = true) &&
+                        !it.isDirectory
                 }
                 val stream = executable?.stream()
                     ?: return@runCatching InstallValidation.Invalid(
                         path = found.location.displayPath,
-                        reason = "The executable could not be opened for reading.",
+                        reason = "Vampire.exe could not be opened for reading. Android " +
+                            "refused access to the file — use Import Game Files to renew " +
+                            "the permission for that folder.",
+                        detail = InstallationValidator.EXECUTABLE_NAME,
                     )
 
                 InstallationValidator.validate(
@@ -671,9 +687,25 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 installValidation = result
                 runtimeHost.setValidation(result)
+                applyValidationToInstallCard()
                 updateLaunchState()
             }
         }
+    }
+
+    /**
+     * Folds the validation result into the installation card.
+     *
+     * Without this the card and the launch button describe the same folder in
+     * two voices that disagree: the card is drawn from the scan, which only
+     * matches names, so it says "game files detected" in green for a folder the
+     * validator has just refused. The refusal is the more recent and more
+     * specific finding, so it wins.
+     */
+    private fun applyValidationToInstallCard() {
+        val invalid = installValidation as? InstallValidation.Invalid ?: return
+        binding.installStatus.rowDetail.text = invalid.reason
+        applyStatus(binding.installStatus, IntegrationStatus.PARTIAL)
     }
 
     /**
@@ -889,7 +921,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         binding.launchHint.text = when (state) {
             LaunchState.Ready -> getString(R.string.launch_ready)
             LaunchState.NeedsRuntime -> getString(R.string.launch_needs_runtime)
-            is LaunchState.Blocked -> getString(state.reason.messageRes())
+            is LaunchState.Blocked -> blockedHint(state.reason)
         }
         binding.launchButton.text = getString(
             if (state is LaunchState.NeedsRuntime) R.string.launch_install_runtime
@@ -932,6 +964,61 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         validation = installValidation,
         runtimeAcquirable = runtimeIsAcquirable(),
     )
+
+    /**
+     * The one line under the Launch button.
+     *
+     * For a rejected installation this is the validator's own words rather than
+     * a fixed string. The fixed one said "has not been verified yet" for two
+     * completely different situations — the check had not run, and the check
+     * had run and refused the file — and only the second is something the user
+     * can act on. A button that is switched off with a reason nobody can read
+     * is indistinguishable from a broken one.
+     */
+    private fun blockedHint(reason: BlockReason): String = when (reason) {
+        BlockReason.INSTALL_NOT_VALIDATED -> when (val result = installValidation) {
+            is InstallValidation.Invalid -> result.reason
+            else -> getString(R.string.launch_locked_not_validated)
+        }
+        else -> getString(reason.messageRes())
+    }
+
+    /**
+     * The full reason the Launch button is off, for the hint to open on a tap.
+     *
+     * The hint is one line of small text; a validation failure also carries the
+     * folder that was checked and what its header actually said, and none of
+     * that fits. Tapping the hint opens all of it, and offers the one action
+     * that can change the answer — re-checking the folder — because a refusal
+     * caused by a revoked permission or an unmounted card is not permanent.
+     */
+    private fun showLaunchBlockDetail() {
+        val invalid = installValidation as? InstallValidation.Invalid
+        // Nothing to expand: the button works, so the one line already on
+        // screen is the whole story.
+        if (launchState() !is LaunchState.Blocked && invalid == null) return
+
+        val message = buildString {
+            appendLine(binding.launchHint.text)
+            if (invalid != null) {
+                if (invalid.detail.isNotBlank()) {
+                    appendLine()
+                    appendLine(invalid.detail)
+                }
+                appendLine()
+                append(getString(R.string.launch_blocked_checked_folder, invalid.path))
+            }
+        }.trimEnd()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.launch_blocked_title)
+            .setMessage(message)
+            .setNeutralButton(R.string.launch_blocked_recheck) { _, _ ->
+                ensureInstall(force = true)
+            }
+            .setPositiveButton(R.string.import_dialog_positive, null)
+            .show()
+    }
 
     private fun BlockReason.messageRes(): Int = when (this) {
         BlockReason.NO_GAME_FILES -> R.string.launch_locked_no_install
