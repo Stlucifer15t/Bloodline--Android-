@@ -2,9 +2,8 @@ package com.bloodline.android.runtime
 
 import android.content.Context
 import android.os.Build
-import com.bloodline.android.runtime.packaging.RuntimeLayout
-import com.bloodline.android.runtime.packaging.RuntimePackageManager
 import com.bloodline.android.runtime.packaging.RuntimeAcquisition
+import com.bloodline.android.runtime.packaging.RuntimeLayout
 import com.bloodline.android.runtime.packaging.RuntimePackageManager
 import com.bloodline.android.runtime.packaging.RuntimePackageStore
 import java.io.File

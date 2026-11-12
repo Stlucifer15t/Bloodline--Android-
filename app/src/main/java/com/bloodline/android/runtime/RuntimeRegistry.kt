@@ -169,6 +169,23 @@ object RuntimeRegistry {
         )
     }
 
+    /**
+     * Aggregate status of an already-built list.
+     *
+     * Separate from [overallStatus] so a caller that has already derived the
+     * components — from [forProvider], say — gets an aggregate that agrees with
+     * the rows it is about to draw, rather than a second, differently-derived
+     * answer.
+     */
+    fun overallOf(components: List<RuntimeComponent>): IntegrationStatus {
+        val statuses = components.map { it.status }
+        return when {
+            statuses.all { it == READY } -> READY
+            statuses.any { it != NOT_INTEGRATED } -> PARTIAL
+            else -> NOT_INTEGRATED
+        }
+    }
+
     /** Aggregate status: READY only when every component is READY. */
     fun overallStatus(
         nativeHosting: IntegrationStatus = NOT_INTEGRATED,

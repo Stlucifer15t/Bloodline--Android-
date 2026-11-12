@@ -480,7 +480,8 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     )
 
     private fun bindRuntimeRows() {
-        val components = runtimeComponents().associateBy { it.id }
+        val all = runtimeComponents()
+        val components = all.associateBy { it.id }
 
         bindStatusRow(
             binding.runtimeOverall,
@@ -488,7 +489,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                 id = "overall",
                 title = getString(R.string.runtime_overall_label),
                 detail = getString(R.string.runtime_overall_detail),
-                status = RuntimeRegistry.overallStatus(),
+                status = RuntimeRegistry.overallOf(all),
             ),
         )
         bindNativeRow(component(components, ComponentIds.NATIVE_HOSTING))
@@ -1108,9 +1109,9 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
         background.execute {
             val outcome = runCatching {
-                acquisition.installAll { progress ->
+                acquisition.installAll(onProgress = { progress ->
                     runOnUiThread { onRuntimeInstallProgress(progress) }
-                }
+                })
             }.getOrElse { error ->
                 RuntimeAcquisition.Outcome.Failed(
                     getString(R.string.runtime_install_title),
