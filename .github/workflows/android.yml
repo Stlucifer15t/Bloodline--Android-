@@ -157,7 +157,16 @@ jobs:
           BLOODLINE_VERIFY_WINE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: |
           set -o pipefail
-          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest \
+          # --rerun is not optional here.
+          #
+          # The test writes its findings to a file as a side effect, and Gradle
+          # does not know that file is an output, so nothing about the report
+          # is part of the task's cache key. Once the code stopped changing
+          # between runs, :app:testDebugUnitTest began coming back FROM-CACHE:
+          # the task never executed, the file was never written, and the report
+          # simply stopped existing while the build stayed green. A task whose
+          # purpose is what it writes to disk has to be made to run.
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest --rerun \
             --tests "*UpstreamPackageVerificationTest*" 2>&1 | tee gradle-upstream.log
 
       - name: Publish the upstream package report
