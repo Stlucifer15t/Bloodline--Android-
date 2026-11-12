@@ -798,8 +798,7 @@ class MainActivity : AppCompatActivity() {
         binding.diagnosticsDetail.text = listOf(
             binding.diagnosticsDetail.text.toString(),
             text,
-        ).filter { it.isNotBlank() }.joinToString("
-")
+        ).filter { it.isNotBlank() }.joinToString("\n")
     }
 
     private fun formatSize(bytes: Long): String = when {

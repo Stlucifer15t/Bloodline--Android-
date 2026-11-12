@@ -35,7 +35,6 @@ import com.bloodline.android.settings.SettingsProvider
 import com.bloodline.android.settings.SettingsRepository
 import com.bloodline.android.settings.UiScale
 import com.bloodline.android.settings.UiScaleApplier
-import com.bloodline.android.storage.GameFolderStore
 
 /**
  * The settings screen.
