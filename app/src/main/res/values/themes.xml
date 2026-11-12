@@ -125,6 +125,14 @@
     </style>
 
 
+    <!--
+        Widget styles use dot notation, so every parent in the name has to be
+        defined or the resource linker refuses the whole file.
+    -->
+    <style name="Widget" />
+
+    <style name="Widget.Bloodlines" />
+
     <!-- Compact button used in rows of four, e.g. the diagnostics card. -->
     <style name="Widget.Bloodlines.SmallButton">
         <item name="android:layout_height">40dp</item>
