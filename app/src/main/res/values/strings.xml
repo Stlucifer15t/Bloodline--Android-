@@ -110,9 +110,7 @@
 
     <!-- Runtime acquisition: the runtime is downloaded, never bundled. -->
     <string name="runtime_install_title">Install the compatibility runtime?</string>
-    <string name="runtime_install_message">The launcher needs Wine and its 32-bit Windows layer to run Vampire.exe. They are downloaded from the upstream projects that build them, once, and kept in this app's own folder — nothing is written beside your game files.
-
-Download size: %1$s. Use Wi-Fi.</string>
+    <string name="runtime_install_message">The launcher needs Wine and its 32-bit Windows layer to run Vampire.exe. They are downloaded from the upstream projects that build them, once, and kept in a folder belonging to this app — nothing is written beside your game files.\n\nDownload size: %1$s. Use Wi-Fi.</string>
     <string name="runtime_install_positive">Download</string>
     <string name="runtime_install_negative">Not now</string>
     <string name="runtime_install_starting">Preparing to download…</string>
@@ -120,8 +118,7 @@ Download size: %1$s. Use Wi-Fi.</string>
     <string name="runtime_install_failed">Installing %1$s failed: %2$s</string>
     <string name="runtime_install_cancelled">The download was cancelled.</string>
     <string name="runtime_install_already_running">The runtime is already downloading.</string>
-    <string name="runtime_install_progress">%1$s
-%2$,d%% of this package · %3$d of %4$d</string>
+    <string name="runtime_install_progress">%1$s\n%2$d%% of this package · %3$d of %4$d</string>
 
     <plurals name="install_search_path_value">
         <item quantity="one">%1$d location</item>
