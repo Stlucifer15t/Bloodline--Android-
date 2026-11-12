@@ -18,7 +18,11 @@ jobs:
     timeout-minutes: 45
 
     permissions:
-      contents: read
+      # contents: write is here for exactly one thing: attaching the upstream
+      # package report to the commit as a comment. Nothing in this job pushes,
+      # tags or creates a release, and a report nobody can find is the reason
+      # the permission is being widened rather than the report being dropped.
+      contents: write
       pull-requests: write
 
     steps:
@@ -198,9 +202,13 @@ jobs:
           # unreachable.
           cat /tmp/upstream-comment.md >> "$GITHUB_STEP_SUMMARY"
 
+          # Built as JSON rather than passed with -F body=@file: it says what
+          # is being sent, and jq is on every runner.
+          jq -n --rawfile body /tmp/upstream-comment.md '{body: $body}' \
+            > /tmp/upstream-comment.json
           gh api -X POST \
             "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
-            -F body=@/tmp/upstream-comment.md
+            --input /tmp/upstream-comment.json
 
           # And on the pull request too, when there is one to put it on.
           if [ -n "${{ github.event.pull_request.number }}" ]; then
