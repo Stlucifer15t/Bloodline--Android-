@@ -31,9 +31,17 @@ class InstallationValidatorTest {
         size: Long = MIN_EXECUTABLE_BYTES + 1024,
         magic: String = "MZ",
         signature: String = "PE\u0000\u0000",
+        /** Sections as `PointerToRawData` to `SizeOfRawData`. */
+        sections: List<Pair<Int, Int>> = emptyList(),
     ): ByteArray {
         val peOffset = 0x80
-        val bytes = ByteArray(size.coerceAtLeast(peOffset + 24L + 70L).toInt())
+        val coff = peOffset + 4
+        val optionalHeaderSize = if (subsystem == null) 0 else 240
+        val tableEnd = coff + 20 + optionalHeaderSize + sections.size * 40
+
+        // Big enough for the headers, and for the section table when there is
+        // one, so a fixture that claims sections has room to hold them.
+        val bytes = ByteArray(size.coerceAtLeast(maxOf(coff + 20L + 70L, tableEnd.toLong())).toInt())
 
         // DOS header, with e_lfanew pointing at the PE signature.
         bytes[0] = magic[0].code.toByte()
@@ -45,15 +53,23 @@ class InstallationValidatorTest {
 
         // COFF header: machine, then section count, then the optional header size
         // at offset 16 — which is what tells us whether a subsystem field exists.
-        val coff = peOffset + 4
         putShort(bytes, coff, machine)
-        putShort(bytes, coff + 2, 3) // number of sections
-        putShort(bytes, coff + 16, if (subsystem == null) 0 else 240) // optional header size
+        putShort(bytes, coff + 2, sections.size) // number of sections
+        putShort(bytes, coff + 16, optionalHeaderSize)
         putShort(bytes, coff + 18, 0x0102) // characteristics
 
         if (subsystem != null) {
             // Windows GUI/CUI live at offset 68 of the optional header.
             putShort(bytes, coff + 20 + 68, subsystem)
+        }
+
+        // Section headers follow the optional header, 40 bytes each. The two
+        // fields that decide whether the file is complete are SizeOfRawData at
+        // +16 and PointerToRawData at +20.
+        sections.forEachIndexed { index, (rawPointer, rawSize) ->
+            val at = coff + 20 + optionalHeaderSize + index * 40
+            putInt(bytes, at + 16, rawSize)
+            putInt(bytes, at + 20, rawPointer)
         }
 
         return bytes
@@ -152,6 +168,54 @@ class InstallationValidatorTest {
         val result = validate(pe(machine = 0x014C, signature = "PX\u0000\u0000"))
 
         assertTrue((result as InstallValidation.Invalid).reason.contains("PE signature is missing"))
+    }
+
+    // ------------------------------------------------------------- file size
+
+    @Test
+    fun `accepts the small Source engine stub that real copies of the game ship`() {
+        // This is the bug, kept. Vampire.exe is a Source engine launcher: it
+        // loads bin/engine.dll, and the game's own code lives in
+        // Vampire/dlls/vampire.dll. Real installs report it at 24 KB, 52 KB and
+        // 208 KB, so a floor of "at least 1 MB" refused almost every genuine
+        // copy of the game while claiming the file must be truncated.
+        //
+        // These sections say the file needs 21,504 bytes, which is what a
+        // complete 24 KB stub looks like.
+        for (size in longArrayOf(24L * 1024, 52L * 1024, 176L * 1024)) {
+            val bytes = pe(
+                machine = 0x014C,
+                subsystem = 2,
+                size = size,
+                sections = listOf(0x400 to 0x1000, 0x1400 to 0x4200),
+            )
+
+            val result = validate(bytes)
+
+            assertTrue(
+                "a ${size / 1024} KB Vampire.exe is a real copy and must be accepted",
+                result is InstallValidation.Valid,
+            )
+        }
+    }
+
+    @Test
+    fun `rejects a truncated download`() {
+        // What the size check is actually for: a copy that stopped early. The
+        // header is intact and entirely plausible, and it says the file needs
+        // 512 KB, but only 24 KB arrived.
+        val bytes = pe(
+            machine = 0x014C,
+            subsystem = 2,
+            size = 24L * 1024,
+            sections = listOf(0 to 512 * 1024),
+        )
+
+        val result = validate(bytes)
+
+        val invalid = result as InstallValidation.Invalid
+        assertTrue(invalid.reason.contains("truncated"))
+        assertTrue(invalid.reason.contains("512 KB"))
     }
 
     @Test
