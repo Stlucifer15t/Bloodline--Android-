@@ -49,7 +49,14 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
      */
     fun wineLoader(flavour: WineFlavour = WineFlavour.DEFAULT): File? =
         wineRoot(flavour)?.let { root ->
-            NAMES_WINE_LOADER.firstNotNullOfOrNull { root.find(it) }
+            // `bin/wine` is the documented entry point, and it is preferred
+            // deliberately. A Wine package also carries the real ELF at
+            // `lib/wine/<arch>-unix/wine`, and a walk that finds that first
+            // produces a launcher that works by accident while every path
+            // around it - PATH, the bin directory, where wineserver is looked
+            // for - points somewhere else.
+            NAMES_WINE_LOADER.firstNotNullOfOrNull { root.resolve(it).takeIf { file -> file.isFile } }
+                ?: NAMES_WINE_LOADER.firstNotNullOfOrNull { root.find(it) }
         }
 
     /** The directory holding the loader, for `PATH`. */
@@ -98,9 +105,7 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
      * `share/wine`, or nowhere at all if the build was stripped.
      */
     fun windowsDirectory(flavour: WineFlavour = WineFlavour.DEFAULT): File? =
-        wineRoot(flavour)?.let { root ->
-            NAMES_WINDOWS.firstNotNullOfOrNull { root.resolve(it).takeIf { dir -> dir.isDirectory } }
-        }
+        windowsDirectory(flavour, prefer32Bit = false)
 
     /**
      * A Windows program shipped inside the Wine build itself.
@@ -116,15 +121,39 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
      *        exists to run.
      * @return the executable, or null when the build does not carry one.
      */
+    /**
+     * Where Wine keeps the Windows system files of one bitness.
+     *
+     * Observed, not assumed. Reading a real Wine 11.3 ARM64EC package showed
+     * the layout that had been guessed at was wrong: there is no `windows`
+     * directory at all. Wine puts its Windows system files under
+     * `lib/wine/`, split by the architecture they were built for:
+     *
+     * * `lib/wine/i386-windows` — 32-bit x86, which is what the game is
+     * * `lib/wine/aarch64-windows` — 64-bit ARM
+     *
+     * The 32-bit one matters more than it sounds: it is where a 32-bit Windows
+     * program that ships with Wine lives, and one of those is what the WoW64
+     * stage runs to prove the 32-bit path works.
+     */
+    fun windowsDirectory(
+        flavour: WineFlavour = WineFlavour.DEFAULT,
+        prefer32Bit: Boolean = false,
+    ): File? {
+        val root = wineRoot(flavour) ?: return null
+        val order = if (prefer32Bit) NAMES_WINDOWS_32 + NAMES_WINDOWS_64 else NAMES_WINDOWS_64 + NAMES_WINDOWS_32
+        return order.firstNotNullOfOrNull { root.resolve(it).takeIf { dir -> dir.isDirectory } }
+    }
+
     fun windowsExecutable(
         name: String,
         flavour: WineFlavour = WineFlavour.DEFAULT,
         prefer32Bit: Boolean = true,
     ): File? {
-        val windows = windowsDirectory(flavour) ?: return null
-        val order = if (prefer32Bit) listOf("syswow64", "system32") else listOf("system32", "syswow64")
-        return order.firstNotNullOfOrNull { directory ->
-            File(windows, directory).takeIf { it.isDirectory }?.find(name)
+        val order = if (prefer32Bit) NAMES_WINDOWS_32 + NAMES_WINDOWS_64 else NAMES_WINDOWS_64 + NAMES_WINDOWS_32
+        val root = wineRoot(flavour) ?: return null
+        return order.firstNotNullOfOrNull { path ->
+            File(root, path).takeIf { it.isDirectory }?.find(name)
         }
     }
 
@@ -188,15 +217,37 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
 
     private companion object {
 
-        /** `wine` is the ARM64EC/x86_64 loader; `wine64` appears in some builds. */
-        val NAMES_WINE_LOADER = listOf("wine", "wine64")
+        /**
+         * `bin/wine` is the launcher; `wine64` appears in some builds. The bare
+         * names are fallbacks for a build that does not use a `bin` directory.
+         */
+        val NAMES_WINE_LOADER = listOf("bin/wine", "bin/wine64", "wine", "wine64")
 
         val NAMES_WINE_LIB = listOf("lib", "lib64", "lib/wine", "lib64/wine")
 
         val NAMES_EMULATOR = listOf("box64")
 
-        /** Where a Wine build keeps its Windows system files. */
-        val NAMES_WINDOWS = listOf("share/wine/windows", "windows", "lib/wine/windows")
+        /**
+         * Where a Wine build keeps its 32-bit Windows system files.
+         *
+         * In the order observed in a real Wine 11.3 ARM64EC package, with the
+         * conventional locations after it in case another build differs.
+         */
+        val NAMES_WINDOWS_32 = listOf(
+            "lib/wine/i386-windows",
+            "share/wine/windows/syswow64",
+            "windows/syswow64",
+            "syswow64",
+        )
+
+        /** Where a Wine build keeps its 64-bit Windows system files. */
+        val NAMES_WINDOWS_64 = listOf(
+            "lib/wine/aarch64-windows",
+            "lib/wine/x86_64-windows",
+            "share/wine/windows/system32",
+            "windows/system32",
+            "system32",
+        )
 
         /**
          * Deep enough for `lib/wine/x86_64-windows/...`, shallow enough that a

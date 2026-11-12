@@ -55,6 +55,11 @@ class UpstreamPackageVerificationTest {
             val store = RuntimePackageStore(temporary.newFolder(pack.id))
             val manager = RuntimePackageManager(store)
 
+            // Downloaded here first so the checksum is taken on the real
+            // bytes: install() deletes the staged file once it has unpacked,
+            // and a checksum we cannot print is a checksum we cannot pin.
+            val checksum = downloadForChecksum(store, pack)
+
             val startedAt = System.currentTimeMillis()
             val state = manager.install(pack, "arm64-v8a")
             val seconds = (System.currentTimeMillis() - startedAt) / 1000
@@ -67,9 +72,7 @@ class UpstreamPackageVerificationTest {
 
             val target = store.packageDir(pack)
             if (state is RuntimePackageManager.State.Installed) {
-                val staged = File(store.stagingDir(), "${pack.id}-${pack.version}.download")
-                report.append("sha256        : ${sha256Of(staged.takeIf { it.isFile } ?: archiveOf(target))}\n")
-                report.append("format        : ${ArchiveExtractor().detectFormat(staged.takeIf { it.isFile } ?: File("/dev/null")).title}\n")
+                report.append("sha256        : $checksum\n")
                 report.append("files         : ${target.walkTopDown().count { it.isFile }}\n")
                 report.append("top level     : ${target.listFiles()?.map { it.name }?.sorted() ?: emptyList<String>()}\n")
                 report.append(layoutOf(target))
@@ -96,6 +99,7 @@ class UpstreamPackageVerificationTest {
         report.append("bin dir       : ${layout.wineBinDir(WineFlavour.WOW64_BOX64)}\n")
         report.append("lib dirs      : ${layout.libDirs(WineFlavour.WOW64_BOX64)}\n")
         report.append("windows dir   : ${layout.windowsDirectory(WineFlavour.WOW64_BOX64)}\n")
+        report.append("windows (32)  : ${layout.windowsDirectory(WineFlavour.WOW64_BOX64, prefer32Bit = true)}\n")
         report.append("cmd.exe (32)  : ${layout.windowsExecutable("cmd.exe", WineFlavour.WOW64_BOX64, prefer32Bit = true)}\n")
         report.append("cmd.exe (any) : ${layout.windowsExecutable("cmd.exe", WineFlavour.WOW64_BOX64, prefer32Bit = false)}\n")
         report.append("alsa plugin   : ${layout.alsaPlugin(WineFlavour.WOW64_BOX64)}\n")
@@ -127,7 +131,7 @@ class UpstreamPackageVerificationTest {
 
         val report = StringBuilder("\n=== WoW64 package layout ===\n")
         report.append("wow64 dll     : ${layout.wow64Dll(WineFlavour.WOW64_BOX64)}\n")
-        report.append("files         : ${target.walkTopDown().filter { it.isFile }.map { it.relativeTo(target).path }.sorted()}\n")
+        report.append("files         : ${target.walkTopDown().filter { it.isFile }.map { it.relativeTo(target).path }.sorted().toList()}\n")
 
         val dll = layout.wow64Dll(WineFlavour.WOW64_BOX64)
         if (dll != null) {
@@ -173,8 +177,24 @@ class UpstreamPackageVerificationTest {
         }
     }
 
-    /** Best-effort archive for a checksum: the staging file if it survived. */
-    private fun archiveOf(directory: File): File = directory
+    /**
+     * Downloads [pack] into its staging file and returns the checksum.
+     *
+     * Left in place on purpose: the manager sees a staged file of exactly the
+     * published length and skips the download, so the install that follows
+     * verifies and unpacks these very bytes.
+     */
+    private fun downloadForChecksum(store: RuntimePackageStore, pack: RuntimePackage): String {
+        val staged = store.stagedFile(pack)
+        staged.parentFile?.mkdirs()
+        java.net.URL(pack.url).openConnection().apply {
+            connectTimeout = 60_000
+            readTimeout = 300_000
+        }.getInputStream().use { input ->
+            staged.outputStream().buffered().use { output -> input.copyTo(output) }
+        }
+        return sha256Of(staged)
+    }
 
     /** Writes [text] where CI can pick it up, since stdout is not captured. */
     private fun writeReport(text: String) {

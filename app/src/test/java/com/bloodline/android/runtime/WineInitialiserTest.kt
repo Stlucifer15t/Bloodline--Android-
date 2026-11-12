@@ -47,8 +47,11 @@ class WineInitialiserTest {
         val bin = File(wineRoot, "bin").apply { mkdirs() }
 
         File(bin, "wine").writeBytes(elf(machine = AARCH64, interpreter = "/system/bin/linker64"))
-        File(wineRoot, "share/wine/windows/syswow64").apply { mkdirs() }
-        File(wineRoot, "share/wine/windows/syswow64/cmd.exe").writeBytes(byteArrayOf('M'.code.toByte(), 'Z'.code.toByte()))
+        // The layout observed in a real Wine 11.3 ARM64EC package: Windows
+        // system files under lib/wine/, split by the architecture they were
+        // built for. i386-windows is the 32-bit one, which is what the game is.
+        File(wineRoot, "lib/wine/i386-windows").apply { mkdirs() }
+        File(wineRoot, "lib/wine/i386-windows/cmd.exe").writeBytes(byteArrayOf('M'.code.toByte(), 'Z'.code.toByte()))
 
         val responses = script.toMutableList()
         val runner = object : CommandRunner {
