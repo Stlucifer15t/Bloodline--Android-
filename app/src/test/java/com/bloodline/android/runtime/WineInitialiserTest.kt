@@ -35,7 +35,7 @@ class WineInitialiserTest {
     @get:Rule
     val temporary = TemporaryFolder()
 
-    private val commands = mutableListOf<List<String>>()
+    private val commands = mutableListOf<ProcessRunner.Request>()
     private val environments = mutableListOf<Map<String, String>>()
     private val directories = mutableListOf<String>()
 
@@ -55,8 +55,19 @@ class WineInitialiserTest {
             override fun run(
                 request: ProcessRunner.Request,
                 onLine: (String) -> Unit,
-            ): ProcessRunner.Outcome {
-                commands += request.command
+            ): ProcessRunner.Outcome = scripted(request)
+
+            override fun launch(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+                onExit: (ProcessRunner.Outcome) -> Unit,
+            ): ProcessRunner.Handle {
+                onExit(scripted(request))
+                return ProcessRunner.Handle { }
+            }
+
+            private fun scripted(request: ProcessRunner.Request): ProcessRunner.Outcome {
+                commands += request
                 environments += request.environment
                 directories += request.workingDirectory?.absolutePath.orEmpty()
                 return if (responses.isEmpty()) {
@@ -68,6 +79,20 @@ class WineInitialiserTest {
         }
 
         return WineInitialiser(runner, RuntimeLayout(store), store) to root
+    }
+
+    /** A runner that answers every command the same way. */
+    private fun scriptedRunner(outcome: ProcessRunner.Outcome) = object : CommandRunner {
+        override fun run(request: ProcessRunner.Request, onLine: (String) -> Unit) = outcome
+
+        override fun launch(
+            request: ProcessRunner.Request,
+            onLine: (String) -> Unit,
+            onExit: (ProcessRunner.Outcome) -> Unit,
+        ): ProcessRunner.Handle {
+            onExit(outcome)
+            return ProcessRunner.Handle { }
+        }
     }
 
     private fun exited(code: Int, vararg output: String) =
@@ -98,7 +123,7 @@ class WineInitialiserTest {
         assertTrue(report.describe(), report.succeeded)
         assertEquals(
             listOf("--version", "wineboot", "cmd.exe"),
-            commands.map { File(it[1]).name },
+            commands.map { File(it.command[1]).name },
         )
         assertEquals(
             WineInitialiser.Stage.WOW64,
@@ -175,10 +200,7 @@ class WineInitialiserTest {
         val bin = File(store.packageDir(RuntimePackageCatalog.WINE_ARM64EC), "bin").apply { mkdirs() }
         File(bin, "wine").writeBytes(elf(machine = X86_64, interpreter = "/system/bin/linker64"))
 
-        val runner = object : CommandRunner {
-            override fun run(request: ProcessRunner.Request, onLine: (String) -> Unit) =
-                ProcessRunner.Outcome.Exited(0, emptyList(), 0)
-        }
+        val runner = scriptedRunner(ProcessRunner.Outcome.Exited(0, emptyList(), 0))
         val report = WineInitialiser(runner, RuntimeLayout(store), store)
             .initialise(WineFlavour.WOW64_BOX64, emptyMap())
 
@@ -194,10 +216,7 @@ class WineInitialiserTest {
         val bin = File(store.packageDir(RuntimePackageCatalog.WINE_ARM64EC), "bin").apply { mkdirs() }
         File(bin, "wine").writeBytes(elf(machine = AARCH64, interpreter = "/lib/ld-linux-aarch64.so.1"))
 
-        val runner = object : CommandRunner {
-            override fun run(request: ProcessRunner.Request, onLine: (String) -> Unit) =
-                ProcessRunner.Outcome.Exited(0, emptyList(), 0)
-        }
+        val runner = scriptedRunner(ProcessRunner.Outcome.Exited(0, emptyList(), 0))
         val report = WineInitialiser(runner, RuntimeLayout(store), store)
             .initialise(WineFlavour.WOW64_BOX64, emptyMap())
 
@@ -209,10 +228,7 @@ class WineInitialiserTest {
     fun `a package with no Wine in it is reported rather than guessed at`() {
         val root = temporary.newFolder("empty")
         val store = RuntimePackageStore(root)
-        val runner = object : CommandRunner {
-            override fun run(request: ProcessRunner.Request, onLine: (String) -> Unit) =
-                ProcessRunner.Outcome.Exited(0, emptyList(), 0)
-        }
+        val runner = scriptedRunner(ProcessRunner.Outcome.Exited(0, emptyList(), 0))
 
         val report = WineInitialiser(runner, RuntimeLayout(store), store)
             .initialise(WineFlavour.WOW64_BOX64, emptyMap())

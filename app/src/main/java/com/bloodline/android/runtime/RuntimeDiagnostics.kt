@@ -47,6 +47,7 @@ object RuntimeDiagnostics {
         phase: RuntimeManager.Phase? = null,
         exit: GameProcessManager.ExitResult? = null,
         errors: List<String> = emptyList(),
+        initialisation: WineInitialiser.Report? = null,
     ): Map<String, String> = linkedMapOf<String, String>().apply {
 
         // --- what this device can do, all of it measured -------------------
@@ -99,6 +100,23 @@ object RuntimeDiagnostics {
             }
 
             null -> put("Install", "not checked")
+        }
+
+        // --- how far Wine actually got --------------------------------------
+        // One row per stage, because "the runtime is not ready" is not a
+        // diagnosis. Which stage failed, and what Wine printed when it did, is.
+        if (initialisation == null) {
+            put("Wine", "not initialised")
+        } else {
+            initialisation.results.forEach { result ->
+                put("Wine · ${result.stage.title.lowercase()}", result.describe())
+            }
+            if (initialisation.unverified.isNotEmpty()) {
+                put(
+                    "Wine · unverified",
+                    initialisation.unverified.joinToString(", ") { it.title.lowercase() },
+                )
+            }
         }
 
         // --- how the run went ---------------------------------------------

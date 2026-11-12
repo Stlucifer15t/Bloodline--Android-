@@ -101,6 +101,30 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee gradle-tests.log
 
+      - name: Verify the upstream packages really download and unpack
+        # The only step that fetches the actual Wine and WoW64 packages from
+        # their pinned URLs. Everything else in the suite runs against data we
+        # wrote, and three things about these packages were inferred from
+        # reading other people's source rather than observed: the container
+        # format behind the private `.wcp` extension, the internal layout, and
+        # the name and location of the WoW64 DLL. This replaces inference with
+        # observation, and prints the real checksums and layout so they can be
+        # pinned rather than guessed.
+        #
+        # Non-blocking on purpose: it depends on GitHub's release host being
+        # reachable, and a network hiccup must not fail a build whose APKs are
+        # fine. The report is the deliverable, and it is in the job log either
+        # way. Wine is 226 MB, so it is fetched only on a manual dispatch.
+        id: upstream
+        continue-on-error: true
+        env:
+          BLOODLINE_VERIFY_PACKAGES: "1"
+          BLOODLINE_VERIFY_WINE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest \
+            --tests "*UpstreamPackageVerificationTest*" 2>&1 | tee gradle-upstream.log
+
       - name: Run Android lint
         id: lint
         run: |

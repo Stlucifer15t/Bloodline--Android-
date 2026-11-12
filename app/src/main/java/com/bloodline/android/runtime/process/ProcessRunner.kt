@@ -41,6 +41,18 @@ import java.util.ArrayDeque
  */
 interface CommandRunner {
     fun run(request: ProcessRunner.Request, onLine: (String) -> Unit = {}): ProcessRunner.Outcome
+
+    /**
+     * Starts a process without waiting for it.
+     *
+     * @param onExit called from a thread of the runner's choosing, not the
+     *        caller's.
+     */
+    fun launch(
+        request: ProcessRunner.Request,
+        onLine: (String) -> Unit = {},
+        onExit: (ProcessRunner.Outcome) -> Unit,
+    ): ProcessRunner.Handle
 }
 
 /**
@@ -171,9 +183,9 @@ class ProcessRunner : CommandRunner {
      * This is what the game itself uses: it runs for hours, and nothing may
      * block on it.
      */
-    fun launch(
+    override fun launch(
         request: Request,
-        onLine: (String) -> Unit = {},
+        onLine: (String) -> Unit,
         onExit: (Outcome) -> Unit,
     ): Handle {
         val process = try {

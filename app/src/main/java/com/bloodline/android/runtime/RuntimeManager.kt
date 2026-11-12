@@ -5,6 +5,8 @@ import com.bloodline.android.runtime.backends.CpuTranslator
 import com.bloodline.android.runtime.backends.GraphicsBackend
 import com.bloodline.android.runtime.backends.GraphicsSelection
 import com.bloodline.android.runtime.backends.GraphicsBackendSelector
+import com.bloodline.android.runtime.process.CommandRunner
+import com.bloodline.android.runtime.process.ProcessRunner
 
 /**
  * The one object the launcher talks to.
@@ -48,6 +50,20 @@ class RuntimeManager(
      * not been given a runtime to build one from.
      */
     private val launcher: RuntimeLauncher? = null,
+
+    /**
+     * Brings Wine up, or null when there is no runtime to bring up.
+     *
+     * Separate from [launcher] because it is a different question. The launcher
+     * works out *what to run*; this runs it and finds out whether it worked.
+     */
+    private val initialiser: WineInitialiser? = null,
+
+    /** Starts processes. Null when the manager is being used without one. */
+    private val runner: CommandRunner? = null,
+
+    /** Called with each line the guest prints, for the diagnostics log. */
+    private val onOutput: (String) -> Unit = {},
 ) {
 
     private var capabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
@@ -57,6 +73,12 @@ class RuntimeManager(
     private var phase: Phase = Phase.Idle
 
     private var lastError: String? = null
+
+    /** The result of the last Wine initialisation, for the diagnostics report. */
+    private var lastInitialisation: WineInitialiser.Report? = null
+
+    /** The handle on a running game process, so it can be stopped. */
+    private var gameHandle: ProcessRunner.Handle? = null
 
     /** The plan the last [start] would have executed, for the report. */
     private var lastPlan: RuntimeLauncher.LaunchPlan? = null
@@ -190,6 +212,30 @@ class RuntimeManager(
         // empty command rather than pretending to start something. That refusal
         // is the mechanism which keeps the Launch button honest.
         val command = commandFor(validation)
+        if (command.isEmpty()) {
+            val reason = lastPlan?.missing?.firstOrNull()
+                ?: "The runtime could not build a command to start the game with."
+            lastError = reason
+            phase = Phase.Restored(reason)
+            return phase
+        }
+
+        // Wine is brought up before the game is asked for, and its failure is
+        // reported as the stage that failed rather than as "the runtime is not
+        // ready". Files on disk are not an initialised runtime.
+        when (val broughtUp = bringUpWine()) {
+            null -> Unit // No initialiser: nothing can be checked, so nothing is claimed.
+            else -> {
+                lastInitialisation = broughtUp
+                val failed = broughtUp.failedAt
+                if (failed != null) {
+                    lastError = failed.describe()
+                    phase = Phase.Restored(failed.describe())
+                    return phase
+                }
+            }
+        }
+
         if (!processManager.onLaunch(command)) {
             val state = processManager.state()
             val reason = (state as? GameProcessManager.State.Failed)?.reason
@@ -200,9 +246,42 @@ class RuntimeManager(
         }
 
         phase = Phase.Launching
+
+        // Started, not waited for: the game runs for hours. The callback is how
+        // its exit reaches the process manager from the runner's thread.
+        gameHandle = runner?.launch(
+            ProcessRunner.Request(
+                command = command,
+                environment = lastPlan?.environment.orEmpty(),
+                workingDirectory = lastPlan?.workingDirectory?.let { java.io.File(it) },
+            ),
+            onLine = onOutput,
+            onExit = { outcome ->
+                when (outcome) {
+                    is ProcessRunner.Outcome.Exited -> processManager.onExit(outcome.exitCode)
+                    is ProcessRunner.Outcome.TimedOut -> processManager.onMissing("the game was killed by the runtime")
+                    is ProcessRunner.Outcome.Failed -> processManager.onMissing(outcome.reason)
+                }
+            },
+        )
+
         phase = Phase.InGame
         return phase
     }
+
+    /**
+     * Runs the Wine initialisation sequence.
+     *
+     * @return null when there is no [initialiser], so that "nothing was
+     *         checked" is never reported as "everything was fine".
+     */
+    private fun bringUpWine(): WineInitialiser.Report? =
+        initialiser?.initialise(
+            flavour = flavour(),
+            environment = lastPlan?.environment.orEmpty(),
+            plan = lastPlan,
+            onLine = onOutput,
+        )
 
     /**
      * Records that the game ended and returns the launcher to rest.
@@ -212,6 +291,11 @@ class RuntimeManager(
      * launcher state are put back.
      */
     fun stop(reason: StopReason): GameProcessManager.ExitResult {
+        // The process is told to stop first: a launcher that has handed back
+        // the screen while the game is still running has not shut down at all.
+        gameHandle?.cancel()
+        gameHandle = null
+
         val result = when (reason) {
             StopReason.UserRequested -> processManager.onStopped()
             StopReason.Vanished -> processManager.onReaped()
@@ -262,6 +346,9 @@ class RuntimeManager(
 
     /** The plan the last [start] built, or null. Includes unviable ones. */
     fun plan(): RuntimeLauncher.LaunchPlan? = lastPlan
+
+    /** How far Wine got the last time it was brought up, or null. */
+    fun initialisation(): WineInitialiser.Report? = lastInitialisation
 
     /** One precondition, with the detail shown to the user when it fails. */
     data class Check(

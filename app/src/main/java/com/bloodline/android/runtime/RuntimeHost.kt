@@ -1,6 +1,7 @@
 package com.bloodline.android.runtime
 
 import com.bloodline.android.runtime.backends.AudioBridge
+import com.bloodline.android.runtime.process.CommandRunner
 import com.bloodline.android.runtime.backends.CpuTranslator
 import com.bloodline.android.runtime.backends.GraphicsSelection
 
@@ -37,6 +38,37 @@ class RuntimeHost(
     private val manager: RuntimeManager = RuntimeManager(),
     private val configuration: RuntimeConfiguration = RuntimeConfiguration(),
 ) {
+
+    companion object {
+
+        /**
+         * Builds a host around a manager that can actually run something.
+         *
+         * Kept here rather than in the [Android][android.content.Context]-only
+         * provider object so that a test can build a host with a real manager
+         * without an Android context.
+         */
+        fun wired(
+            host: Host,
+            configuration: RuntimeConfiguration = RuntimeConfiguration(),
+            provider: RuntimeProvider,
+            launcher: RuntimeLauncher,
+            initialiser: WineInitialiser,
+            runner: CommandRunner,
+            onOutput: (String) -> Unit = {},
+        ): RuntimeHost = RuntimeHost(
+            host = host,
+            configuration = configuration,
+            manager = RuntimeManager(
+                configuration = configuration,
+                provider = provider,
+                launcher = launcher,
+                initialiser = initialiser,
+                runner = runner,
+                onOutput = onOutput,
+            ),
+        )
+    }
 
     /** Everything the host needs from Android, and nothing else. */
     interface Host {
@@ -160,6 +192,7 @@ class RuntimeHost(
         phase = manager.phase(),
         exit = exit,
         errors = errors,
+        initialisation = manager.initialisation(),
     )
 
     private fun publish(phase: RuntimeManager.Phase) = host.onPhaseChanged(phase)

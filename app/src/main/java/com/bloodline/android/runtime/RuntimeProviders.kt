@@ -6,6 +6,7 @@ import com.bloodline.android.runtime.packaging.RuntimeAcquisition
 import com.bloodline.android.runtime.packaging.RuntimeLayout
 import com.bloodline.android.runtime.packaging.RuntimePackageManager
 import com.bloodline.android.runtime.packaging.RuntimePackageStore
+import com.bloodline.android.runtime.process.ProcessRunner
 import java.io.File
 
 /**
@@ -48,13 +49,30 @@ object RuntimeProviders {
         return RuntimeAcquisition(RuntimePackageManager(store), deviceAbi())
     }
 
-    /** A [RuntimeManager] wired to the real provider and launcher. */
+    /** Starts real processes. */
+    fun processRunner(): ProcessRunner = ProcessRunner()
+
+    /** Brings Wine up, wired to the same store as [launcher]. */
+    fun initialiser(context: Context): WineInitialiser {
+        val store = RuntimePackageStore(runtimeRoot(context))
+        return WineInitialiser(
+            runner = processRunner(),
+            layout = RuntimeLayout(store),
+            store = store,
+        )
+    }
+
+    /** A [RuntimeManager] wired to the real provider, launcher and Wine. */
     fun manager(
         context: Context,
         configuration: RuntimeConfiguration = RuntimeConfiguration(),
+        onOutput: (String) -> Unit = {},
     ): RuntimeManager = RuntimeManager(
         configuration = configuration,
         provider = packaged(context),
         launcher = launcher(context),
+        initialiser = initialiser(context),
+        runner = processRunner(),
+        onOutput = onOutput,
     )
 }
