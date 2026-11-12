@@ -120,15 +120,22 @@ enum class GraphicsBackend(
     ;
 
     /**
-     * Whether this backend has any chance on this device.
+     * Whether this device rules this backend out.
      *
-     * Deliberately weaker than "will work": a device measurement can only rule
-     * a backend *out*, never in. It checks nothing about the shipped binaries,
-     * because none ship yet — which is also why [status] can never return
-     * [IntegrationStatus.READY] from a device reading alone.
+     * Only the **measured** requirements are consulted, and that distinction is
+     * the whole point. Every backend also needs binaries that do not ship yet;
+     * folding those in here would make every backend "unsupported" and the
+     * answer useless. So this says "the device has what it takes", while
+     * [status] separately says "and the build has what it takes".
+     *
+     * Weaker than "will work", then, but not infinitely weak: a device that has
+     * not been measured at all supports nothing, because unmeasured is not the
+     * same as fine.
      */
-    fun isSupportedBy(capabilities: RuntimeCapabilities): Boolean =
-        requirements(capabilities).all { it.satisfied }
+    fun isSupportedBy(capabilities: RuntimeCapabilities): Boolean {
+        if (!capabilities.measured) return false
+        return requirements(capabilities).filter { it.measured }.all { it.satisfied }
+    }
 
     override fun status(capabilities: RuntimeCapabilities): IntegrationStatus {
         val requirements = requirements(capabilities)

@@ -41,7 +41,7 @@ object InstallationValidator {
     const val EXECUTABLE_NAME = "Vampire.exe"
 
     /** Bloodlines is a 32-bit game; this is the machine type we expect. */
-    const val EXPECTED_MACHINE = PeMachine.I386
+    val EXPECTED_MACHINE: PeMachine = PeMachine.I386
 
     /**
      * The smallest `Vampire.exe` that could possibly be real. A full install is
@@ -237,7 +237,6 @@ object InstallationValidator {
     private const val E_LFANEW_OFFSET = 0x3C
     private const val PE_SIGNATURE_SIZE = 4
     private const val COFF_HEADER_SIZE = 20
-    private const val MACHINE_OFFSET = 0
     private const val SUBSYSTEM_OFFSET = 68
     private const val MAX_HEADER_BYTES = 4096
 

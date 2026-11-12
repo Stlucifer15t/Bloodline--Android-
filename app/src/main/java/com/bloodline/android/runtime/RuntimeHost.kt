@@ -1,5 +1,9 @@
 package com.bloodline.android.runtime
 
+import com.bloodline.android.runtime.backends.AudioBridge
+import com.bloodline.android.runtime.backends.CpuTranslator
+import com.bloodline.android.runtime.backends.GraphicsSelection
+
 /**
  * Drives a launch from the Launch button to the launcher coming back.
  *
@@ -177,8 +181,8 @@ class RuntimeHost(
 
     /** The three choices the runtime would make right now. */
     data class Selection(
-        val graphics: com.bloodline.android.runtime.backends.GraphicsSelection,
-        val translator: com.bloodline.android.runtime.backends.CpuTranslator,
-        val audio: com.bloodline.android.runtime.backends.AudioBridge,
+        val graphics: GraphicsSelection,
+        val translator: CpuTranslator,
+        val audio: AudioBridge,
     )
 }

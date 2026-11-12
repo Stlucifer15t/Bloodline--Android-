@@ -22,17 +22,21 @@ interface StorageFolder {
  *
  * @param name        file or folder name.
  * @param isDirectory true when this entry can be opened as a folder.
- * @param open        opens this entry as a folder.
  * @param read        opens this entry for reading, or null when the backing
  *                    store cannot produce a stream. Reading is the only access
  *                    the launcher needs: nothing here can write, so no scan or
  *                    validation can damage the user's game files.
+ * @param open        opens this entry as a folder. Last on purpose: callers
+ *                    pass it as a trailing lambda, and inserting anything after
+ *                    it would silently rebind those lambdas.
  */
 class StorageEntry(
     val name: String,
     val isDirectory: Boolean,
-    private val open: () -> StorageFolder = { throw UnsupportedOperationException("$name is not a folder") },
     private val read: () -> InputStream? = { null },
+    private val open: () -> StorageFolder = {
+        throw UnsupportedOperationException("$name is not a folder")
+    },
 ) {
     /** Opens this entry as a folder. Only valid when [isDirectory] is true. */
     fun folder(): StorageFolder = open()

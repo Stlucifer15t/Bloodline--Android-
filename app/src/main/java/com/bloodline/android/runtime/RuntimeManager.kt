@@ -51,7 +51,6 @@ class RuntimeManager(
     /** Feeds in device measurements. Cheap, idempotent, no side effects. */
     fun prepare(measured: RuntimeCapabilities) {
         capabilities = measured
-        if (phase is Phase.Idle) phase = Phase.Idle
     }
 
     /** The graphics backend this device would use, and whether it was a fallback. */
@@ -194,12 +193,17 @@ class RuntimeManager(
     /** The last failure, for the UI to show. Null once acknowledged. */
     fun error(): String? = lastError
 
+    /**
+     * The command that would start the game.
+     *
+     * Empty, always, until there is a Wine loader to put in it. Returning empty
+     * rather than a placeholder is deliberate: a placeholder command would fail
+     * somewhere far away from its real cause, whereas an empty one is refused
+     * immediately by [GameProcessManager.onLaunch] with the reason attached.
+     */
     private fun commandFor(validation: InstallValidation?): List<String> {
-        val valid = validation as? InstallValidation.Valid ?: return emptyList()
-        // No wine loader path exists yet, so no command can be built. Returning
-        // empty rather than a placeholder is deliberate: a placeholder command
-        // would fail somewhere far away from the real cause.
-        return emptyList<String>().takeIf { valid.install.executablePath.isBlank() } ?: emptyList()
+        if (validation !is InstallValidation.Valid) return emptyList()
+        return emptyList()
     }
 
     /** One precondition, with the detail shown to the user when it fails. */
