@@ -24,6 +24,18 @@ class LaunchReadinessTest {
     private fun component(status: IntegrationStatus) =
         RuntimeComponent(id = "test", title = "", detail = "", status = status)
 
+
+    /** An installation whose executable passed the PE header check. */
+    private fun validatedInstall() = InstallValidation.Valid(
+        install = ValidatedInstall(
+            rootPath = "/storage/Bloodlines",
+            executablePath = "/storage/Bloodlines/Vampire.exe",
+            machine = PeMachine.I386,
+            sizeBytes = 4L * 1024 * 1024,
+            subsystem = PeSubsystem.WINDOWS_GUI,
+        ),
+    )
+
     @Test
     fun `blocks when no game files are present`() {
         val state = LaunchReadiness.evaluate(
@@ -80,9 +92,23 @@ class LaunchReadinessTest {
         val state = LaunchReadiness.evaluate(
             install = install(complete = true),
             components = listOf(component(IntegrationStatus.READY), component(IntegrationStatus.READY)),
+            validation = validatedInstall(),
         )
 
         assertEquals(LaunchState.Ready, state)
+    }
+
+    @Test
+    fun `blocks when the executable has not been validated, even with every component ready`() {
+        // Added with the PE header check: a complete-looking folder whose
+        // executable was never read is not a launchable install.
+        val state = LaunchReadiness.evaluate(
+            install = install(complete = true),
+            components = listOf(component(IntegrationStatus.READY), component(IntegrationStatus.READY)),
+            validation = null,
+        )
+
+        assertEquals(LaunchState.Blocked(BlockReason.INSTALL_NOT_VALIDATED), state)
     }
 
     @Test
@@ -107,7 +133,11 @@ class LaunchReadinessTest {
 
         assertEquals(
             LaunchState.Ready,
-            LaunchReadiness.evaluate(install = install(complete = true), components = components),
+            LaunchReadiness.evaluate(
+                install = install(complete = true),
+                components = components,
+                validation = validatedInstall(),
+            ),
         )
     }
 }

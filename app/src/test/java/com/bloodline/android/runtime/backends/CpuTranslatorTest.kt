@@ -58,7 +58,11 @@ class CpuTranslatorTest {
         // so they are two requirements rather than one.
         val requirements = CpuTranslator.BOX86.requirements(RuntimeCapabilities(measured = true))
 
-        assertEquals(2, requirements.count { it.description.contains("32-bit") })
+        // Three requirements mention "32-bit" - the two userland ones plus
+        // Box86's own name - so the two that matter are named explicitly.
+        val descriptions = requirements.map { it.description }
+        assertTrue(descriptions.any { it.contains("32-bit ABI") })
+        assertTrue(descriptions.any { it.contains("32-bit processes") })
         assertTrue(requirements.none { it.satisfied })
     }
 

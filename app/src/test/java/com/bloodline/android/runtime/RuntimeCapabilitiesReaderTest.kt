@@ -194,7 +194,7 @@ class RuntimeCapabilitiesReaderTest {
     @Test
     fun `a 64-bit only device with no abilist32 has no 32-bit ABI`() {
         val capabilities = RuntimeCapabilitiesReader.assemble(
-            runtimeOutput = "runtime-probe: ok\nabi: arm64-v8a\nabi-list-32: unknown",
+            runtimeOutput = "runtime-probe: ok\nabi: arm64-v8a\nabilist32: unknown",
             graphicsOutput = graphics,
             processOutput = process,
             abis = listOf("arm64-v8a"),

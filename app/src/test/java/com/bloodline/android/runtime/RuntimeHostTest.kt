@@ -44,6 +44,7 @@ class RuntimeHostTest {
     private val glesDevice = RuntimeCapabilities(
         abis = listOf("arm64-v8a"),
         glesVersion = "OpenGL ES 3.2",
+        glRenderer = "Mali-G52 MC2",
         gpuNodes = setOf("mali0"),
         measured = true,
     )

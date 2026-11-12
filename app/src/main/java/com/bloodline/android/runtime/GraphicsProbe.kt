@@ -46,7 +46,9 @@ object GraphicsProbe {
             .filter { it.startsWith("mali-node:") }
             .map { it.substringAfter("mali-node:").trim() }
             .filter { it.isNotEmpty() }
-            .forEach { add(it.trimStart('/')) }
+            // Every device node lives under /dev, so the prefix identifies
+            // nothing. What matters is which node it is: mali0, mali, and so on.
+            .forEach { add(it.trimStart('/').removePrefix("dev/")) }
 
         output.lineSequence()
             .filter { it.startsWith("dri-node:") }
