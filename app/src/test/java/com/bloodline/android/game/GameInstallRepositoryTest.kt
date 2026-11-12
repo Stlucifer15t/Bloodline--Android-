@@ -247,7 +247,7 @@ class GameInstallRepositoryTest {
     }
 
     @Test
-    fun `a scan failure is reported instead of being swallowed`() {
+    fun `an unreadable folder is skipped rather than crashing`() {
         val broken = BrokenFolder(GameLocation(LocationKind.EXTERNAL_FOLDER, "x", "/x"))
         val results = mutableListOf<InstallScanReport>()
 
@@ -256,6 +256,24 @@ class GameInstallRepositoryTest {
             onProgress = {},
             onResult = { results += it },
         )
+
+        val report = results.single()
+        assertNull(report.install)
+        assertNull(report.error)
+    }
+
+    @Test
+    fun `a scan failure is reported instead of being swallowed`() {
+        val results = mutableListOf<InstallScanReport>()
+
+        val repository = GameInstallRepository(
+            roots = { error("storage is gone") },
+            metadataStore = InMemoryInstallMetadataStore(),
+            clock = { NOW },
+            appVersion = APP_VERSION,
+            executor = directExecutor,
+        )
+        repository.ensureInstall(force = true, onProgress = {}, onResult = { results += it })
 
         val report = results.single()
         assertNull(report.install)

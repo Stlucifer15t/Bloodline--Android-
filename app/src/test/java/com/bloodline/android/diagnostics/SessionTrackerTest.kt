@@ -6,6 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -20,9 +21,15 @@ class SessionTrackerTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
-    private fun directory() = temporaryFolder.newFolder("sessions")
+    /** One folder per test, created once: the rule refuses duplicates. */
+    private lateinit var directory: File
 
-    private fun tracker(directory: File = directory(), clock: () -> Long = { NOW }) =
+    @Before
+    fun createDirectory() {
+        directory = temporaryFolder.newFolder("sessions")
+    }
+
+    private fun tracker(clock: () -> Long = { NOW }) =
         SessionTracker(directory, clock, pid = { 4242 })
 
     // ------------------------------------------------------------------- tests
@@ -39,11 +46,9 @@ class SessionTrackerTest {
 
     @Test
     fun `a session that never finished is reported`() {
-        val directory = directory()
+        tracker().begin()
 
-        tracker(directory).begin()
-
-        val unfinished = tracker(directory).takeUnfinished()
+        val unfinished = tracker().takeUnfinished()
 
         assertNotNull(unfinished)
         assertEquals(NOW, unfinished!!.startedAtMillis)
@@ -51,12 +56,10 @@ class SessionTrackerTest {
 
     @Test
     fun `a crash while the app was in front is classified as a crash`() {
-        val directory = directory()
+        tracker().begin()
+        tracker().noteForegrounded()
 
-        tracker(directory).begin()
-        tracker(directory).noteForegrounded()
-
-        val unfinished = tracker(directory).takeUnfinished()
+        val unfinished = tracker().takeUnfinished()
 
         assertEquals(SessionEnd.CRASH, unfinished?.classification)
         assertFalse(unfinished!!.wasBackgrounded)
@@ -64,12 +67,10 @@ class SessionTrackerTest {
 
     @Test
     fun `a death while backgrounded is not reported as a crash`() {
-        val directory = directory()
+        tracker().begin()
+        tracker().noteBackgrounded()
 
-        tracker(directory).begin()
-        tracker(directory).noteBackgrounded()
-
-        val unfinished = tracker(directory).takeUnfinished()
+        val unfinished = tracker().takeUnfinished()
 
         assertEquals(SessionEnd.KILLED_WHILE_BACKGROUNDED, unfinished?.classification)
         assertTrue(unfinished!!.wasBackgrounded)
@@ -77,44 +78,39 @@ class SessionTrackerTest {
 
     @Test
     fun `coming back to the foreground clears the backgrounded state`() {
-        val directory = directory()
+        tracker().begin()
+        tracker().noteBackgrounded()
+        tracker().noteForegrounded()
 
-        tracker(directory).begin()
-        tracker(directory).noteBackgrounded()
-        tracker(directory).noteForegrounded()
-
-        assertEquals(SessionEnd.CRASH, tracker(directory).takeUnfinished()?.classification)
+        assertEquals(SessionEnd.CRASH, tracker().takeUnfinished()?.classification)
     }
 
     @Test
     fun `taking the unfinished session removes it`() {
-        val directory = directory()
-        tracker(directory).begin()
+        tracker().begin()
 
-        tracker(directory).takeUnfinished()
+        tracker().takeUnfinished()
 
         // The second call is a fresh start, and must not see it again.
-        assertNull(tracker(directory).takeUnfinished())
+        assertNull(tracker().takeUnfinished())
     }
 
     @Test
     fun `begin keeps the original start time of an open session`() {
-        val directory = directory()
         val later = NOW + 60_000
 
-        tracker(directory, clock = { NOW }).begin()
+        tracker(clock = { NOW }).begin()
         // Recreating the launcher must not restart the clock.
-        tracker(directory, clock = { later }).begin()
+        tracker(clock = { later }).begin()
 
-        assertEquals(NOW, tracker(directory, clock = { later }).takeUnfinished()?.startedAtMillis)
+        assertEquals(NOW, tracker(clock = { later }).takeUnfinished()?.startedAtMillis)
     }
 
     @Test
     fun `an unreadable marker yields nothing rather than a false report`() {
-        val directory = directory()
         File(directory, SessionTracker.MARKER_NAME).writeText("garbage")
 
-        assertNull(tracker(directory).takeUnfinished())
+        assertNull(tracker().takeUnfinished())
     }
 
     @Test

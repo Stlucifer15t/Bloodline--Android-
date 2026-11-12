@@ -51,16 +51,21 @@ class GameInstallRepository(
         )
     }
 
-    /** Whether the remembered result is still good enough to trust. */
-    fun isCachedFresh(): Boolean {
+    /**
+     * Whether the remembered result is still good enough to trust.
+     *
+     * Never throws: if the search folders cannot even be listed right now, the
+     * honest answer is "not fresh", and the scan that follows will report why.
+     */
+    fun isCachedFresh(): Boolean = runCatching {
         val meta = metadataStore.load() ?: return false
-        return meta.isFresh(
+        meta.isFresh(
             fingerprint = fingerprint(),
             appVersion = appVersion,
             now = clock(),
             staleAfterMillis = staleAfterMillis,
         )
-    }
+    }.getOrDefault(false)
 
     /**
      * Makes sure the launcher has an install result.
@@ -91,11 +96,16 @@ class GameInstallRepository(
         if (scanning) return false
         scanning = true
 
-        val snapshot = roots()
-        val fingerprint = snapshot.joinToString(FINGERPRINT_SEPARATOR) { it.location.reference }
-
         executor.execute {
             val report = try {
+                // Even listing the search folders can fail (a revoked URI, a
+                // removed card), so it happens inside the guarded block: the
+                // caller gets a report with the reason instead of an exception.
+                val snapshot = roots()
+                val fingerprint = snapshot.joinToString(FINGERPRINT_SEPARATOR) {
+                    it.location.reference
+                }
+
                 val scan = GameInstallScanner(snapshot).scanInstall(onProgress)
 
                 val now = clock()
