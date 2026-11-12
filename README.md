@@ -279,6 +279,24 @@ environment. These are the findings that shape the plan.
 | Audio | Wine ALSA → AAudio / OpenSL ES | LGPL / Apache | Bloodlines uses DirectSound3D. WineD3D's ALSA backend maps onto a small bridge to AAudio; no Android-specific blocker identified, but nothing is written yet. |
 | Storage | App-specific external storage | — | Chosen because it needs no storage permission and works under Android 11+ scoped storage. SAF import comes later. |
 
+**Device capability is measured, not assumed.** Before a container can be
+designed, four questions about the real device have to be answered, and the
+runtime probe (`libruntime_probe.so`) answers them at startup. Tap *Device
+capability* in the runtime card for the raw output; the same text goes into every
+diagnostics report.
+
+| Measured | Why it decides the architecture |
+| --- | --- |
+| `ptrace` | PRoot — and every ptrace-based rootless container — is impossible without it. The probe forks a child, traces it and peeks at its memory. |
+| `seccomp` | If the process is already under a seccomp filter, the set of syscalls a container may intercept is smaller. |
+| `exec-memfd` | Android 10+ refuses to execute anything from writable app storage, so the runtime needs another way to start Wine and Box86. The probe copies itself into anonymous memory (`memfd_create`) and executes it through `/proc/self/fd`. |
+| `personality32`, `ro-zygote`, `abilist32`, `linker32` | Box86 is a **32-bit ARM** program, because the game is 32-bit x86. A growing number of Android 14 devices run 64-bit-only kernels, where Box86 cannot run at all. These are strong indicators rather than a direct execution test, because W^X blocks us from executing an extracted 32-bit binary to prove it. |
+
+The 32-bit question is the one most likely to change the plan: if the TECNO CK6
+turns out to be 64-bit only, the CPU translation layer has to be an arm64
+emulator (FEX-Emu or Box64 with ARM64EC) rather than Box86, which is a
+significantly larger piece of work.
+
 **Native hosting is now proven, not assumed.** A C executable built with the NDK
 is renamed `libnative_probe.so`, packaged in the APK, extracted by Android into
 the executable `nativeLibraryDir`, and run by the launcher at startup. CI blocks
@@ -376,8 +394,11 @@ The launcher notices when it did not get to close properly:
    that ships as `libnative_probe.so`; the app runs it from the APK's library
    folder and reports the measured ABI, API level and W^X verdict. This is the
    mechanism Wine and Box86 will be launched through.
-4. **Milestone 4 — container**: glibc userland + PRoot (or a leaner chroot-free
-   approach) booting inside the app.
+4. **Milestone 4 — container** *(in progress)*: the capability probe above is
+   the first step — it establishes whether ptrace, anonymous-memory execution
+   and 32-bit processes are available, which decides between PRoot and a
+   chroot-free approach, and between Box86 and an arm64 emulator. Next comes
+   the glibc userland booting inside the app.
 5. **Milestone 5 — Wine + Box86**: Wine arm64 build with a 32-bit prefix, Box86
    translating `Vampire.exe`.
 6. **Milestone 6 — graphics and audio**: VirGL + WineD3D, then the audio bridge.

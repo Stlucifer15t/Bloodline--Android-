@@ -41,6 +41,10 @@
     <string name="native_probe_failed">The native probe did not run successfully (exit %1$d).</string>
     <string name="native_probe_hint">Tap the native execution row to see the raw output.</string>
     <string name="runtime_overall_label">Runtime status</string>
+    <string name="runtime_capability_label">Device capability</string>
+    <string name="runtime_capability_pending">Measuring… tap to refresh later</string>
+    <string name="runtime_capability_failed">Probe failed (exit %1$d)</string>
+    <string name="runtime_capability_hint">ptrace, seccomp, executing from memory and 32-bit support, measured on this device</string>
     <string name="runtime_overall_detail">The Windows compatibility layer is not integrated yet. The launcher ships as a UI foundation only.</string>
 
     <!-- Status labels -->

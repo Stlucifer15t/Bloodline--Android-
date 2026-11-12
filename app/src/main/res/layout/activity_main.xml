@@ -235,6 +235,19 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="6dp"
+                android:background="@color/ink_600" />
+
+            <!-- Measured on the device, not assumed. Tap for the full report. -->
+            <include
+                android:id="@+id/runtimeCapability"
+                layout="@layout/view_config_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
         </LinearLayout>
 
         <!-- ============================ Graphics =========================== -->
