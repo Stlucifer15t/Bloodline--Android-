@@ -7,15 +7,33 @@ import com.bloodline.android.runtime.IntegrationStatus.READY
 /**
  * The catalogue of everything that has to exist before Vampire.exe can start.
  *
- * Each entry is intentionally independent: Wine, the CPU translator, the
- * container, graphics and audio can each be built, tested and replaced without
- * touching the others. The registry is pure Kotlin so the state of the stack is
- * unit testable without an Android device.
+ * Each entry is intentionally independent: native hosting, Wine, the CPU
+ * translator, the container, graphics and audio can each be built, tested and
+ * replaced without touching the others. The registry is pure Kotlin so the state
+ * of the stack is unit testable without an Android device.
+ *
+ * Statuses that can be measured on the device are passed in
+ * ([nativeHosting]); everything else is a static statement about the code that
+ * ships in the APK.
  */
 object RuntimeRegistry {
 
     /** Current state of every planned runtime component. */
-    fun components(): List<RuntimeComponent> = listOf(
+    fun components(
+        nativeHosting: IntegrationStatus = NOT_INTEGRATED,
+    ): List<RuntimeComponent> = listOf(
+        RuntimeComponent(
+            id = ComponentIds.NATIVE_HOSTING,
+            title = "Native execution (W^X safe)",
+            detail = when (nativeHosting) {
+                READY -> "A bundled native binary runs from the APK's library folder, which is " +
+                    "how Wine and Box86 will be launched."
+                PARTIAL -> "Checking whether a bundled native binary can run on this device…"
+                NOT_INTEGRATED -> "Not verified yet: the bundled probe did not run successfully " +
+                    "on this device."
+            },
+            status = nativeHosting,
+        ),
         RuntimeComponent(
             id = ComponentIds.WINE,
             title = "Wine — Windows API layer",
@@ -59,9 +77,14 @@ object RuntimeRegistry {
     )
 
     /** Aggregate status: READY only when every component is READY. */
-    fun overallStatus(): IntegrationStatus = when {
-        components().all { it.status == READY } -> READY
-        components().any { it.status != NOT_INTEGRATED } -> PARTIAL
-        else -> NOT_INTEGRATED
+    fun overallStatus(
+        nativeHosting: IntegrationStatus = NOT_INTEGRATED,
+    ): IntegrationStatus {
+        val statuses = components(nativeHosting).map { it.status }
+        return when {
+            statuses.all { it == READY } -> READY
+            statuses.any { it != NOT_INTEGRATED } -> PARTIAL
+            else -> NOT_INTEGRATED
+        }
     }
 }

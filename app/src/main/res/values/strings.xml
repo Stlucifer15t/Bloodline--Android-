@@ -35,6 +35,10 @@
     <string name="import_dialog_positive">Got it</string>
 
     <!-- Runtime card -->
+    <string name="native_probe_title">Native probe output</string>
+    <string name="native_probe_running">Running the native probe…</string>
+    <string name="native_probe_failed">The native probe did not run successfully (exit %1$d).</string>
+    <string name="native_probe_hint">Tap the native execution row to see the raw output.</string>
     <string name="runtime_overall_label">Runtime status</string>
     <string name="runtime_overall_detail">The Windows compatibility layer is not integrated yet. The launcher ships as a UI foundation only.</string>
 

@@ -4,7 +4,8 @@ package com.bloodline.android.runtime
  * How far along a single piece of the Windows compatibility stack is.
  *
  * Nothing in this project lies about its state: a component only reports
- * [READY] once its code actually ships inside the APK.
+ * [READY] once its code actually ships inside the APK (and, where it can be
+ * measured, once it has been verified on the device that is running).
  */
 enum class IntegrationStatus {
     /** No code exists in the APK for this component. */
@@ -37,6 +38,9 @@ data class RuntimeComponent(
  * component here means adding one row to the launcher layout.
  */
 object ComponentIds {
+    /** Executing a bundled native binary the W^X-safe way. */
+    const val NATIVE_HOSTING = "native-hosting"
+
     const val WINE = "wine"
     const val CPU_TRANSLATION = "cpu-translation"
     const val CONTAINER = "container"

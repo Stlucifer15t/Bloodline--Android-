@@ -25,6 +25,7 @@ import com.bloodline.android.runtime.ComponentIds
 import com.bloodline.android.runtime.IntegrationStatus
 import com.bloodline.android.runtime.LaunchReadiness
 import com.bloodline.android.runtime.LaunchState
+import com.bloodline.android.runtime.NativeProbe
 import com.bloodline.android.runtime.RuntimeComponent
 import com.bloodline.android.runtime.RuntimeRegistry
 import com.bloodline.android.storage.DocumentFolder
@@ -46,6 +47,10 @@ class MainActivity : AppCompatActivity() {
 
     private var install: GameInstall? = null
 
+    /** Result of the bundled native probe, and the status it implies. */
+    private var nativeProbeResult: NativeProbe.Result? = null
+    private var nativeHostingStatus: IntegrationStatus = IntegrationStatus.NOT_INTEGRATED
+
     /** Built on demand so it always reflects the currently selected folder. */
     private val scanner: GameInstallScanner
         get() = GameInstallScanner(StorageLocations.searchRoots(this, gameFolderStore))
@@ -64,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         bindStaticContent()
         bindRuntimeRows()
         refreshGameStatus()
+        runNativeProbe()
 
         binding.importButton.setOnClickListener { folderPicker.launch(null) }
         binding.launchButton.setOnClickListener { onLaunchClicked() }
@@ -111,8 +117,12 @@ class MainActivity : AppCompatActivity() {
         binding.footerVersion.text = getString(R.string.footer_version, BuildConfig.VERSION_NAME)
     }
 
+    /** Components with the live, device measured status folded in. */
+    private fun runtimeComponents() =
+        RuntimeRegistry.components(nativeHosting = nativeHostingStatus)
+
     private fun bindRuntimeRows() {
-        val components = RuntimeRegistry.components().associateBy { it.id }
+        val components = runtimeComponents().associateBy { it.id }
 
         bindStatusRow(
             binding.runtimeOverall,
@@ -123,6 +133,7 @@ class MainActivity : AppCompatActivity() {
                 status = RuntimeRegistry.overallStatus(),
             ),
         )
+        bindNativeRow(component(components, ComponentIds.NATIVE_HOSTING))
         bindStatusRow(binding.runtimeWine, component(components, ComponentIds.WINE))
         bindStatusRow(binding.runtimeCpu, component(components, ComponentIds.CPU_TRANSLATION))
         bindStatusRow(binding.runtimeContainer, component(components, ComponentIds.CONTAINER))
@@ -229,7 +240,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateLaunchState() {
-        val state = LaunchReadiness.evaluate(install)
+        val state = LaunchReadiness.evaluate(install, runtimeComponents())
 
         binding.launchButton.isEnabled = state is LaunchState.Ready
         binding.launchHint.text = when (state) {
@@ -292,11 +303,72 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, text, Toast.LENGTH_LONG).show()
     }
 
+    private fun bindNativeRow(component: RuntimeComponent) {
+        val result = nativeProbeResult
+
+        val detail = when {
+            result == null -> getString(R.string.native_probe_running)
+            result.isSuccessful -> buildString {
+                val summary = NativeProbe.summary(result.output)
+                if (summary.isNotEmpty()) {
+                    append(summary)
+                    append(" · ")
+                }
+                append("a bundled native binary ran from the APK library folder")
+            }
+            else -> getString(R.string.native_probe_failed, result.exitCode)
+        }
+
+        bindStatusRow(binding.runtimeNative, component.copy(detail = detail))
+        binding.runtimeNative.root.setOnClickListener { showNativeProbeOutput() }
+    }
+
+    /** The probe forks a child process, so keep it off the main thread. */
+    private fun runNativeProbe() {
+        Thread {
+            val result = NativeProbe.run(this, cacheDir)
+            runOnUiThread { onNativeProbeFinished(result) }
+        }.start()
+    }
+
+    private fun onNativeProbeFinished(result: NativeProbe.Result) {
+        if (isFinishing || isDestroyed) return
+
+        nativeProbeResult = result
+        nativeHostingStatus = if (result.isSuccessful) {
+            IntegrationStatus.READY
+        } else {
+            IntegrationStatus.NOT_INTEGRATED
+        }
+
+        bindRuntimeRows()
+        updateLaunchState()
+    }
+
+    private fun showNativeProbeOutput() {
+        val result = nativeProbeResult
+        val message = if (result == null) {
+            getString(R.string.native_probe_running)
+        } else {
+            buildString {
+                appendLine("exit code: ${result.exitCode}")
+                appendLine()
+                append(result.output.trimEnd())
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.native_probe_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.import_dialog_positive, null)
+            .show()
+    }
+
     private fun onLaunchClicked() {
         // Defensive: the button is disabled unless LaunchReadiness reports
         // Ready, so a click while blocked can only come from an unexpected
         // state. Tell the user why instead of failing silently.
-        if (LaunchReadiness.evaluate(install) !is LaunchState.Ready) {
+        if (LaunchReadiness.evaluate(install, runtimeComponents()) !is LaunchState.Ready) {
             Toast.makeText(this, binding.launchHint.text, Toast.LENGTH_SHORT).show()
         }
         // Launching itself is implemented together with the runtime container.

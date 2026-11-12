@@ -152,6 +152,12 @@
                 android:background="@color/ink_600" />
 
             <include
+                android:id="@+id/runtimeNative"
+                layout="@layout/view_status_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
                 android:id="@+id/runtimeWine"
                 layout="@layout/view_status_row"
                 android:layout_width="match_parent"
