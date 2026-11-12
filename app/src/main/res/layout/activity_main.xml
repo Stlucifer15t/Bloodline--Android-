@@ -300,6 +300,33 @@
                 android:visibility="gone"
                 tools:visibility="visible" />
 
+            <!-- Feedback for the download, next to the button that started it. -->
+            <LinearLayout
+                android:id="@+id/runtimeInstallProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_3"
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <ProgressBar
+                    android:id="@+id/runtimeInstallProgressBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:indeterminate="true" />
+
+                <TextView
+                    android:id="@+id/runtimeInstallProgressText"
+                    style="@style/Text.RowDetail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_2"
+                    tools:text="Wine 11.3\n42% of this package · 1 of 2" />
+
+            </LinearLayout>
+
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider_height"

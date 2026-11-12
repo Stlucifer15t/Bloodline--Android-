@@ -434,7 +434,8 @@ the device. Three states are kept distinct because a user can act on all three:
 * **Installed but unusable** — the marker is there, the files are not.
 * **Ready** — the packages are installed and their files resolve.
 
-The Launch button opens only in the third case.
+Only the third used to open the Launch button. That turned out to be a deadlock,
+described in the next section, so there is now a fourth state the gate reports.
 
 ### What a real package turned out to contain
 
@@ -454,19 +455,51 @@ replacing inference:
 
 Three inferred paths were wrong and are now corrected against measurement.
 
+### What running the APK on a real device found
+
+A debug APK was installed on the target hardware and opened. It produced no
+download prompt and no way to start one. That is the only device observation in
+this document, and it found a real bug that every test here had passed:
+
+`LaunchReadiness` returned `Blocked(RUNTIME_NOT_INTEGRATED)` for a runtime that
+was merely *absent*, and the activity enabled the Launch button only for
+`LaunchState.Ready`. The runtime is downloaded rather than bundled, so the gate
+was closed by the very thing it was waiting for — `offerRuntimeInstall()` sat
+behind a button that could not be pressed, and the packages could not be
+acquired on any device.
+
+Two lessons, both now in the code:
+
+1. **"Not integrated" and "not downloaded" are different states.** They were the
+   same thing while the runtime was not integrated at all. Once it became
+   something fetched at run time, one of them is a thing a tap can fix and the
+   other is not, so they had to stop sharing a name. `LaunchState.NeedsRuntime`
+   is the fixable one; `Blocked` is reserved for what no tap can change.
+2. **A test suite cannot catch a state that is unreachable.** Every unit test
+   passed, because each one asked `LaunchReadiness` a question in isolation.
+   None of them asked whether the answer could still be acted on. The regression
+   test now asserts the property that was missing — a runtime that is only
+   absent must not come back as a blocked state — rather than a particular value.
+
+The runtime card also carries its own download button, because the Launch button
+is disabled while the game files are missing and the runtime has nothing to do
+with them.
+
 ### Still unverified
 
-Everything above compiles and is unit tested. Nothing has been executed. In
-particular:
+Everything above compiles and is unit tested. Nothing in the runtime itself has
+been executed on a device. In particular:
 
 * No Wine process has been started; no prefix has been created.
-* Each pinned asset has been confirmed to exist at its pinned release tag,
-  with exactly the byte length the catalogue records — checked through the
-  release API. **No package has been downloaded**: this sandbox cannot reach
-  GitHub's release-asset host, and nothing here has run on a device.
+* The packages **are** downloaded in CI, and the checksums in the catalogue are
+  measured from those bytes rather than published by upstream (see the
+  observation table above). They have never been downloaded by a phone.
 * `.wcp` is a private extension for a tar archive compressed with XZ **or**
   Zstandard. Which one a given package uses is not stated anywhere we can read,
   so both are supported and the format is detected from the bytes.
-* The internal layout of each package is searched for, not known.
-* No device has run any of this, so nothing here is a claim about hardware.
+* The internal layout is no longer searched for blindly: the table above records
+  what CI found inside the real package. It is still not documented upstream, so
+  a different package could still differ.
+* The only device observation is the one in the previous section, and it is a
+  bug report, not a success. Nothing here is a claim about hardware.
 

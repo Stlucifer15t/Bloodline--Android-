@@ -1184,6 +1184,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         val acquisition = RuntimeProviders.acquisition(this)
         runtimeInstalling = true
         setRuntimeInstallUi(true, getString(R.string.runtime_install_starting))
+        updateRuntimeInstallButton()
 
         background.execute {
             val outcome = runCatching {
@@ -1201,14 +1202,18 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                 runtimeInstalling = false
                 setRuntimeInstallUi(false, null)
                 onRuntimeInstalled(outcome)
+                // Recomputed, not restored. A failed download leaves a
+                // different state behind from the one the button was disabled
+                // for, and only one branch of onRuntimeInstalled recomputes it.
+                updateLaunchState()
             }
         }
     }
 
     private fun onRuntimeInstallProgress(progress: RuntimeAcquisition.Progress) {
-        binding.importProgressBar.isIndeterminate = progress.percent <= 0
-        if (progress.percent > 0) binding.importProgressBar.progress = progress.percent
-        binding.importProgressText.text = getString(
+        binding.runtimeInstallProgressBar.isIndeterminate = progress.percent <= 0
+        if (progress.percent > 0) binding.runtimeInstallProgressBar.progress = progress.percent
+        binding.runtimeInstallProgressText.text = getString(
             R.string.runtime_install_progress,
             progress.pack.name,
             progress.percent,
@@ -1219,25 +1224,22 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
     private fun onRuntimeInstalled(outcome: RuntimeAcquisition.Outcome) {
         when (outcome) {
-            is RuntimeAcquisition.Outcome.Installed -> {
-                showMessage(getString(R.string.runtime_install_done))
-                updateLaunchState()
-            }
+            is RuntimeAcquisition.Outcome.Installed -> showMessage(getString(R.string.runtime_install_done))
             is RuntimeAcquisition.Outcome.Failed -> showMessage(
                 getString(R.string.runtime_install_failed, outcome.packageName, outcome.reason),
             )
             RuntimeAcquisition.Outcome.Cancelled -> showMessage(
                 getString(R.string.runtime_install_cancelled),
             )
-            RuntimeAcquisition.Outcome.NothingToDo -> updateLaunchState()
+            RuntimeAcquisition.Outcome.NothingToDo -> Unit
         }
     }
 
     private fun setRuntimeInstallUi(active: Boolean, text: String?) {
-        binding.importProgress.isVisible = active
+        binding.runtimeInstallProgress.isVisible = active
         binding.launchButton.isEnabled = !active && binding.launchButton.isEnabled
-        if (text != null) binding.importProgressText.text = text
-        binding.importProgressBar.isIndeterminate = true
+        if (text != null) binding.runtimeInstallProgressText.text = text
+        binding.runtimeInstallProgressBar.isIndeterminate = true
     }
 
     // ------------------------------------------------------------ diagnostics
