@@ -101,6 +101,18 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee gradle-tests.log
 
+      - name: Report how many unit tests ran
+        # "BUILD SUCCESSFUL" does not say over how many tests. The count is read
+        # from the XML the test task writes, because that is the only place it
+        # exists, and printed into the job summary so that a change which
+        # quietly stops running tests is visible rather than assumed away.
+        #
+        # Deliberately before the upstream step: that one re-runs the same task
+        # with a --tests filter, which replaces the results directory with a
+        # single file.
+        if: always()
+        run: python3 tools/test-summary.py | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Verify the upstream packages really download and unpack
         # The only step that fetches the actual Wine and WoW64 packages from
         # their pinned URLs. Everything else in the suite runs against data we
