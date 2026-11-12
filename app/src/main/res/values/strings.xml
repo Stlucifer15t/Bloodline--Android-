@@ -124,6 +124,8 @@
     <string name="runtime_install_already_running">The runtime is already downloading.</string>
     <string name="runtime_install_action">Download runtime · %1$s</string>
     <string name="runtime_install_unavailable">Runtime not available on this device</string>
+    <string name="runtime_install_offline">No network connection — connect and try again</string>
+    <string name="runtime_install_unknown">the runtime</string>
     <string name="runtime_install_progress">%1$s\n%2$d%% of this package · %3$d of %4$d</string>
 
     <plurals name="install_search_path_value">

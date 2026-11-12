@@ -4,6 +4,8 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
@@ -1180,7 +1182,25 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             .show()
     }
 
+    /**
+     * Whether there is a network to download over.
+     *
+     * Asked before a 227 MB transfer, not discovered part-way into one: the
+     * alternative is a socket error the user has no way to act on.
+     */
+    private fun hasNetworkConnection(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        val network = manager?.activeNetwork ?: return false
+        return manager.getNetworkCapabilities(network)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    }
+
     private fun installRuntime() {
+        if (!hasNetworkConnection()) {
+            showMessage(getString(R.string.runtime_install_offline))
+            return
+        }
+
         val acquisition = RuntimeProviders.acquisition(this)
         runtimeInstalling = true
         setRuntimeInstallUi(true, getString(R.string.runtime_install_starting))
@@ -1192,8 +1212,10 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                     runOnUiThread { onRuntimeInstallProgress(progress) }
                 })
             }.getOrElse { error ->
+                // No package to blame: this is the download as a whole failing,
+                // outside anything RuntimePackageManager could name.
                 RuntimeAcquisition.Outcome.Failed(
-                    getString(R.string.runtime_install_title),
+                    getString(R.string.runtime_install_unknown),
                     error.message ?: error::class.simpleName.orEmpty(),
                 )
             }
