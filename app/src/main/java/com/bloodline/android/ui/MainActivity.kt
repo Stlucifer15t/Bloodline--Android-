@@ -1,9 +1,14 @@
 package com.bloodline.android.ui
 
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -28,6 +33,11 @@ import com.bloodline.android.runtime.LaunchState
 import com.bloodline.android.runtime.NativeProbe
 import com.bloodline.android.runtime.RuntimeComponent
 import com.bloodline.android.runtime.RuntimeRegistry
+import com.bloodline.android.settings.FpsMeter
+import com.bloodline.android.settings.SettingsApplier
+import com.bloodline.android.settings.SettingsProvider
+import com.bloodline.android.settings.SettingsRepository
+import com.bloodline.android.settings.UiScaleApplier
 import com.bloodline.android.storage.DocumentFolder
 import com.bloodline.android.storage.GameFolderStore
 import com.bloodline.android.storage.StorageLocations
@@ -44,8 +54,15 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var gameFolderStore: GameFolderStore
+    private lateinit var settings: SettingsRepository
 
     private var install: GameInstall? = null
+
+    /** Live frame-rate overlay, created only when the user turns it on. */
+    private var fpsOverlay: TextView? = null
+    private val fpsMeter = FpsMeter { framesPerSecond ->
+        fpsOverlay?.text = getString(R.string.fps_overlay_prefix, framesPerSecond.toInt())
+    }
 
     /** Result of the bundled native probe, and the status it implies. */
     private var nativeProbeResult: NativeProbe.Result? = null
@@ -59,12 +76,20 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocumentTree()
     ) { uri -> if (uri != null) onFolderPicked(uri) }
 
+    override fun attachBaseContext(newBase: Context) {
+        // The interface scale has to be applied before any view exists.
+        super.attachBaseContext(
+            UiScaleApplier.wrap(newBase, SettingsProvider.get(newBase).uiScale),
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         gameFolderStore = GameFolderStore(this)
+        settings = SettingsProvider.get(this)
 
         bindStaticContent()
         bindRuntimeRows()
@@ -73,12 +98,25 @@ class MainActivity : AppCompatActivity() {
 
         binding.importButton.setOnClickListener { folderPicker.launch(null) }
         binding.launchButton.setOnClickListener { onLaunchClicked() }
+        binding.settingsButton.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        // Re-applied here as well as in onCreate so a change made in the
+        // settings screen shows up the moment the user comes back.
+        SettingsApplier.apply(this, settings)
+        updateFpsOverlay()
+
         // The user may have copied files over while the app was backgrounded.
         refreshGameStatus()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        fpsMeter.stop()
     }
 
     // ---------------------------------------------------------------- content
@@ -372,5 +410,59 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, binding.launchHint.text, Toast.LENGTH_SHORT).show()
         }
         // Launching itself is implemented together with the runtime container.
+    }
+
+    // ------------------------------------------------------------ fps overlay
+
+    /**
+     * Shows or hides the frame-rate readout.
+     *
+     * The number comes from [FpsMeter], which counts real Choreographer frame
+     * callbacks, so it is the refresh rate Android is actually delivering to
+     * this surface rather than a stored value being echoed back.
+     */
+    private fun updateFpsOverlay() {
+        if (!settings.fpsOverlayEnabled) {
+            fpsMeter.stop()
+            removeFpsOverlay()
+            return
+        }
+
+        val overlay = ensureFpsOverlay()
+        fpsMeter.start()
+        overlay.text = getString(R.string.fps_overlay_prefix, 0)
+    }
+
+    private fun ensureFpsOverlay(): TextView {
+        fpsOverlay?.let { return it }
+
+        val density = resources.displayMetrics.density
+        val view = TextView(this).apply {
+            text = getString(R.string.fps_overlay_prefix, 0)
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.blood_400))
+            textSize = 12f
+            letterSpacing = 0.08f
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.fps_overlay_bg)
+            val pad = (8 * density).toInt()
+            setPadding(pad, (4 * density).toInt(), pad, (4 * density).toInt())
+        }
+
+        val margin = (16 * density).toInt()
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            setMargins(margin, margin + (24 * density).toInt(), margin, 0)
+        }
+
+        (window.decorView as ViewGroup).addView(view, params)
+        fpsOverlay = view
+        return view
+    }
+
+    private fun removeFpsOverlay() {
+        fpsOverlay?.let { (window.decorView as ViewGroup).removeView(it) }
+        fpsOverlay = null
     }
 }

@@ -75,9 +75,121 @@
         <item quantity="other">%1$d locations</item>
     </plurals>
 
+    <string name="open_settings">Settings</string>
+
     <!-- Import flow -->
 
     <!-- Footer -->
     <string name="footer_version">Milestone 1 · foundation build %1$s</string>
     <string name="footer_disclaimer">Fan-made compatibility launcher. Vampire: The Masquerade – Bloodlines is a trademark of Paradox Interactive AB. Game files are not included and must be supplied by you.</string>
+    <!-- ============================== Settings ============================= -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_intro">Every switch on this screen has a real effect. Anything that cannot work yet is shown greyed out with the reason, rather than pretending to do something.</string>
+    <string name="settings_reset">Reset To Defaults</string>
+    <string name="settings_back">Back To Launcher</string>
+    <string name="settings_reset_done">Settings restored to defaults</string>
+
+    <string name="settings_section_display">Display &amp; Screen</string>
+    <string name="settings_section_performance">Frame Rate &amp; Performance</string>
+    <string name="settings_section_graphics">Renderer &amp; Graphics</string>
+    <string name="settings_section_audio">Audio</string>
+    <string name="settings_section_controls">Controls &amp; HUD</string>
+    <string name="settings_section_storage">Runtime &amp; Storage</string>
+
+    <!-- Reasons a row is disabled. Shown verbatim so nothing is faked. -->
+    <string name="setting_needs_runtime">Needs the compatibility runtime. The value is remembered and will be applied as soon as the runtime exists.</string>
+    <string name="setting_needs_input_layer">Needs the touch input layer, which has not been built yet.</string>
+    <string name="setting_unsupported">Not offered: nothing in the stack exposes this control.</string>
+
+    <!-- Display -->
+    <string name="setting_native_resolution">Native resolution</string>
+    <string name="setting_native_resolution_detail">Render at the display\'s own pixel size instead of a fixed internal size.</string>
+    <string name="setting_resolution_scale">Resolution scaling</string>
+    <string name="setting_resolution_scale_detail">Renders below the native size and upscales. 50% is the cheapest option for a Mali GPU; 100% is the sharpest.</string>
+    <string name="setting_aspect_ratio">Aspect ratio</string>
+    <string name="setting_aspect_ratio_detail">How a 4:3 game frame is fitted onto a taller phone screen.</string>
+    <string name="setting_immersive">Immersive mode</string>
+    <string name="setting_immersive_detail">Hide the system bars while the app is in front. Applied immediately.</string>
+    <string name="setting_orientation">Screen orientation</string>
+    <string name="setting_orientation_detail">Applied to the launcher now, and to the game surface once it exists.</string>
+    <string name="setting_keep_awake">Keep screen awake</string>
+    <string name="setting_keep_awake_detail">Stops the screen from dimming while the app is in front.</string>
+    <string name="setting_ui_scale">Interface scale</string>
+    <string name="setting_ui_scale_detail">Scales the launcher\'s own text and spacing.</string>
+    <string name="setting_brightness">Screen brightness</string>
+    <string name="setting_brightness_detail">Applied to this app\'s window only: Android has not allowed apps to change the system brightness since Android 6.</string>
+
+    <!-- Performance -->
+    <string name="setting_fps_limit">Frame rate limit</string>
+    <string name="setting_fps_limit_detail">Caps how often the game surface may present a frame. A lower cap means less heat and battery drain on the Helio G85.</string>
+    <string name="setting_vsync">VSync</string>
+    <string name="setting_vsync_detail">Only present frames in step with the display refresh.</string>
+    <string name="setting_frame_pacing">Frame pacing</string>
+    <string name="setting_frame_pacing_detail">Even out the interval between frames instead of presenting them as fast as possible.</string>
+    <string name="setting_fps_overlay">Frame rate overlay</string>
+    <string name="setting_fps_overlay_detail">Shows the frame rate measured from real display frames, so you can verify the limit above is actually doing something.</string>
+    <string name="setting_performance_preset">Performance preset</string>
+    <string name="setting_performance_preset_detail">A coarse bundle of tuning choices the runtime applies together.</string>
+
+    <!-- Graphics -->
+    <string name="setting_renderer">Renderer</string>
+    <string name="setting_renderer_detail">The graphics backend used once the translation layer exists. The safe path stays the default until alternatives are proven on this device.</string>
+    <string name="renderer_wined3d">WineD3D + VirGL (safe)</string>
+    <string name="renderer_panvk">DXVK + PanVK (experimental)</string>
+    <string name="setting_renderer_fallback_note">WineD3D + VirGL works on Mali without a Vulkan driver. DXVK + PanVK is recorded as experimental and is never selected automatically: it only becomes the default after it has been tested on this device.</string>
+
+    <!-- Audio -->
+    <string name="setting_master_volume">Master volume</string>
+    <string name="setting_master_volume_detail">Sets the Android music stream volume: the volume the game will play at. Verified against the device, not just stored.</string>
+    <string name="setting_audio_backend">Audio backend</string>
+    <string name="setting_audio_backend_detail">Which Android audio path the runtime\'s audio bridge should use.</string>
+    <string name="setting_audio_channels">Music / effects / dialogue</string>
+    <string name="setting_audio_channels_detail">Separate channel volumes live inside the game\'s own mixer. Only the runtime can reach them, so they are not offered as sliders that would do nothing.</string>
+
+    <!-- Controls -->
+    <string name="setting_controls_note">The touch HUD does not exist yet, so there is nothing to move, resize or re-order. Building these editors now would produce controls wired to nothing. They arrive with the input layer milestone.</string>
+    <string name="setting_controls_hud">Touch HUD</string>
+    <string name="setting_controls_joystick">Joystick size &amp; position</string>
+    <string name="setting_controls_sensitivity">Camera sensitivity</string>
+    <string name="setting_controls_buttons">Button positions &amp; sizes</string>
+    <string name="setting_controls_transparency">Button transparency</string>
+    <string name="setting_controls_slots">Quick slots (weapon / item)</string>
+    <string name="setting_controls_handedness">Left / right handed layout</string>
+    <string name="setting_controls_profiles">Save / load control profiles</string>
+
+    <!-- Storage -->
+    <string name="setting_install_folder">Game folder</string>
+    <string name="setting_install_folder_detail">The folder the game was found in. Nothing is copied: the launcher reads your own files where they already are.</string>
+    <string name="setting_install_status">Installation status</string>
+    <string name="setting_rescan">Re-scan for game files</string>
+    <string name="setting_rescan_detail">Forces a fresh scan instead of reusing the cached result.</string>
+    <string name="setting_clear_cache">Clear cached scan data</string>
+    <string name="setting_clear_cache_detail">Remembers nothing about your game files, so the next start scans again from scratch.</string>
+    <string name="setting_clear_cache_done">Cached scan data cleared</string>
+    <string name="setting_runtime_version">Runtime version</string>
+    <string name="setting_value_not_set">Not set</string>
+    <string name="setting_value_unavailable">Unavailable</string>
+
+    <!-- Shared values -->
+    <string name="value_portrait">Portrait</string>
+    <string name="value_landscape">Landscape</string>
+    <string name="value_follow_device">Follow device</string>
+    <string name="value_preserve">Preserve 4:3</string>
+    <string name="value_fit">Fit (no crop)</string>
+    <string name="value_stretch">Stretch to fill</string>
+    <string name="value_small">Small (85%)</string>
+    <string name="value_normal">Normal (100%)</string>
+    <string name="value_large">Large (115%)</string>
+    <string name="value_follow_system">Follow system</string>
+    <string name="value_uncapped">Uncapped</string>
+    <string name="value_preset_safe">Safe</string>
+    <string name="value_preset_balanced">Balanced</string>
+    <string name="value_preset_aggressive">Aggressive</string>
+    <string name="value_auto">Auto</string>
+    <string name="value_aaudio">AAudio</string>
+    <string name="value_opensles">OpenSL ES</string>
+
+    <!-- Frame rate overlay -->
+    <string name="fps_overlay_prefix">%1$d fps</string>
+
 </resources>

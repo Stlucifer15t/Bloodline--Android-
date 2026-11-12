@@ -301,6 +301,21 @@
             android:gravity="center"
             android:text="@string/launch_locked_no_runtime" />
 
+        <Button
+            android:id="@+id/settingsButton"
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/btn_outline"
+            android:letterSpacing="0.18"
+            android:minHeight="0dp"
+            android:stateListAnimator="@null"
+            android:text="@string/open_settings"
+            android:textAllCaps="true"
+            android:textColor="@color/button_text"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
+
         <!-- ============================== Footer =========================== -->
         <TextView
             android:id="@+id/footerVersion"
