@@ -91,6 +91,16 @@ class RuntimeHost(
 
     private var validation: InstallValidation? = null
 
+    init {
+        // The game ends on its own schedule, hours from now, so the screen is
+        // given back by that event rather than by [launch] returning. [launch]
+        // starts the process and comes straight back.
+        manager.onProcessExit = { result ->
+            host.exitGameplay()
+            host.onFinished(messageFor(result))
+        }
+    }
+
     /** The current lifecycle phase. */
     fun phase(): RuntimeManager.Phase = manager.phase()
 
@@ -153,7 +163,14 @@ class RuntimeHost(
             host.onError(message)
             manager.phase()
         } finally {
-            if (handedOver) host.exitGameplay()
+            // Only when the game is not actually running. Once it is, the
+            // screen comes back from [manager]'s exit callback, and calling
+            // exitGameplay here would take it back the moment it was given —
+            // which is exactly what would have happened the instant this
+            // stopped being a synchronous, fake launch.
+            if (handedOver && !manager.isRunning()) {
+                host.exitGameplay()
+            }
         }
     }
 

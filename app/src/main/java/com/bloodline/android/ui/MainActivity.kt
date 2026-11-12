@@ -351,25 +351,33 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      * weaken it. Called by the runtime host only once a game process exists,
      * and always paired with [exitGameplay].
      */
-    override fun enterGameplay() = orientation.enterGameplay()
+    override fun enterGameplay() = runOnUiThread { orientation.enterGameplay() }
 
     /**
      * Takes the screen back after the game closes and restores whatever
      * orientation the launcher was using.
      */
-    override fun exitGameplay() = orientation.exitGameplay()
+    override fun exitGameplay() = runOnUiThread { orientation.exitGameplay() }
 
-    override fun onPhaseChanged(phase: RuntimeManager.Phase) {
-        if (isFinishing || isDestroyed) return
+    /**
+     * Every callback below hops to the UI thread, because none of them is
+     * called from it any more.
+     *
+     * Bringing Wine up runs `wineboot`, which takes a minute or two on a
+     * mid-range phone and has to happen off the main thread. That moves the
+     * launch off it too, and with it every callback the runtime makes.
+     */
+    override fun onPhaseChanged(phase: RuntimeManager.Phase) = runOnUiThread {
+        if (isFinishing || isDestroyed) return@runOnUiThread
         binding.launchHint.text = RuntimeDiagnostics.describePhase(phase)
     }
 
-    override fun onFinished(message: String) {
+    override fun onFinished(message: String) = runOnUiThread {
         showMessage(message)
         updateLaunchState()
     }
 
-    override fun onError(message: String) {
+    override fun onError(message: String) = runOnUiThread {
         showMessage(message)
         updateLaunchState()
     }
@@ -1080,7 +1088,21 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         // validate, prepare, initialise, hand the screen over, and give it back
         // when the game ends. The Launch button stays disabled until the path
         // above genuinely works.
-        runtimeHost.launch()
+        //
+        // Off the main thread, and it has to be: this now runs `wine --version`,
+        // `wineboot` and a 32-bit program, each of which can take a minute or
+        // more on a phone. Calling it from a click handler would freeze the
+        // launcher for as long as Wine takes to come up.
+        binding.launchButton.isEnabled = false
+        background.execute {
+            val phase = runtimeHost.launch()
+            runOnUiThread {
+                if (phase !is RuntimeManager.Phase.InGame) {
+                    binding.launchButton.isEnabled = true
+                }
+                updateLaunchState()
+            }
+        }
     }
 
     // ------------------------------------------------- acquiring the runtime

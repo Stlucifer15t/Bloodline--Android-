@@ -66,6 +66,17 @@ class RuntimeManager(
     private val onOutput: (String) -> Unit = {},
 ) {
 
+    /**
+     * Called when the game process ends, from the runner's thread.
+     *
+     * The game is not waited for — it runs for hours — so its end has to be an
+     * event rather than a return value. Without this there is no way to give
+     * the screen back at the right moment; with only a return value, the
+     * launcher would either hand the screen back while the game is still
+     * running or never hand it back at all.
+     */
+    var onProcessExit: ((GameProcessManager.ExitResult) -> Unit)? = null
+
     private var capabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
 
     private var processManager = GameProcessManager()
@@ -257,11 +268,24 @@ class RuntimeManager(
             ),
             onLine = onOutput,
             onExit = { outcome ->
-                when (outcome) {
+                val result = when (outcome) {
                     is ProcessRunner.Outcome.Exited -> processManager.onExit(outcome.exitCode)
-                    is ProcessRunner.Outcome.TimedOut -> processManager.onMissing("the game was killed by the runtime")
-                    is ProcessRunner.Outcome.Failed -> processManager.onMissing(outcome.reason)
+
+                    // No exit status exists in either case, and saying so is
+                    // the point: a process that was killed or never started is
+                    // "vanished", not "exited cleanly with code 0".
+                    is ProcessRunner.Outcome.TimedOut -> {
+                        lastError = "the game was killed after ${outcome.timeoutMs}ms"
+                        processManager.onReaped()
+                    }
+
+                    is ProcessRunner.Outcome.Failed -> {
+                        lastError = outcome.reason
+                        processManager.onMissing(outcome.reason)
+                        processManager.onReaped()
+                    }
                 }
+                onProcessExit?.invoke(result)
             },
         )
 
@@ -349,6 +373,9 @@ class RuntimeManager(
 
     /** How far Wine got the last time it was brought up, or null. */
     fun initialisation(): WineInitialiser.Report? = lastInitialisation
+
+    /** True while a game process is still running. */
+    fun isRunning(): Boolean = processManager.isRunning
 
     /** One precondition, with the detail shown to the user when it fails. */
     data class Check(
