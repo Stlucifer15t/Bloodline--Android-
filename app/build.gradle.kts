@@ -8,6 +8,22 @@ plugins {
 /** Keystore used when no BLOODLINE_STORE_FILE / keystore.properties entry says otherwise. */
 val DEFAULT_KEYSTORE_FILE = "bloodline-release.jks"
 
+/**
+ * Key committed on purpose, so that every build — on any machine, on any CI
+ * run — carries the same signature and installs over the previous one instead
+ * of demanding an uninstall.
+ *
+ * It is public by design, exactly like Android's own debug keystore, and is
+ * replaced automatically by the real release key as soon as its credentials
+ * are supplied. See `tools/make-signing-key.py` and README "Signing".
+ */
+val PROJECT_KEYSTORE_FILE = "bloodline-signing.p12"
+
+/** Not a secret: this key exists so builds stay interchangeable, not to prove identity. */
+val PROJECT_KEYSTORE_PASSWORD = "bloodline"
+
+val PROJECT_KEY_ALIAS = "bloodline"
+
 // Release signing credentials.
 //
 // They are never stored in the repository: they come from a gitignored
@@ -69,33 +85,48 @@ android {
     }
 
     signingConfigs {
-        // Populated only when a keystore and its credentials were actually
-        // supplied, so AGP never sees a half configured config (a keystore
-        // with no password) during an ordinary build.
         create("release") {
             val store = file(signingProperty("storeFile") ?: DEFAULT_KEYSTORE_FILE)
             val password = signingProperty("storePassword")
 
             if (store.exists() && !password.isNullOrEmpty()) {
+                // The real release key, supplied through keystore.properties
+                // locally or through BLOODLINE_* variables in CI.
                 storeFile = store
                 storePassword = password
                 keyAlias = signingProperty("keyAlias").orEmpty()
                 keyPassword = signingProperty("keyPassword").orEmpty()
+            } else {
+                // No release credentials here. Fall back to the committed
+                // project key rather than building an APK that cannot replace
+                // the one already installed.
+                val projectStore = file(PROJECT_KEYSTORE_FILE)
+                if (projectStore.exists()) {
+                    storeFile = projectStore
+                    storeType = "pkcs12"
+                    storePassword = PROJECT_KEYSTORE_PASSWORD
+                    keyAlias = PROJECT_KEY_ALIAS
+                    keyPassword = PROJECT_KEYSTORE_PASSWORD
+                }
             }
         }
     }
 
+    // One signing config, checked once: both build types sign with the same
+    // key so a debug install and a release install can replace each other.
+    val releaseSigning = signingConfigs.getByName("release")
+    val signingReady = releaseSigning.storeFile?.exists() == true &&
+        !releaseSigning.storePassword.isNullOrEmpty() &&
+        !releaseSigning.keyAlias.isNullOrEmpty()
+
     buildTypes {
         debug {
             versionNameSuffix = "-dev"
+            signingConfig = releaseSigning.takeIf { signingReady }
         }
         release {
             isMinifyEnabled = false
-            // Sign only when a keystore and its credentials were actually
-            // supplied; otherwise build an unsigned APK instead of failing.
-            signingConfig = signingConfigs.getByName("release").takeIf { config ->
-                config.storeFile?.exists() == true && !config.storePassword.isNullOrEmpty()
-            }
+            signingConfig = releaseSigning.takeIf { signingReady }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
