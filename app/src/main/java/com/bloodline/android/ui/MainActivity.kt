@@ -1,5 +1,6 @@
 package com.bloodline.android.ui
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -17,11 +18,19 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
+import androidx.core.content.FileProvider
 import com.bloodline.android.BuildConfig
 import com.bloodline.android.R
 import com.bloodline.android.databinding.ActivityMainBinding
 import com.bloodline.android.databinding.ViewConfigRowBinding
 import com.bloodline.android.databinding.ViewStatusRowBinding
+import com.bloodline.android.diagnostics.CrashReport
+import com.bloodline.android.diagnostics.DiagnosticsManager
+import com.bloodline.android.diagnostics.DiagnosticsProvider
+import com.bloodline.android.diagnostics.ReportBuilder
+import com.bloodline.android.diagnostics.ReportInputs
+import com.bloodline.android.diagnostics.SessionEnd
+import com.bloodline.android.diagnostics.UnfinishedSession
 import com.bloodline.android.game.GameInstall
 import com.bloodline.android.game.GameInstallRepository
 import com.bloodline.android.game.GameInstallScanner
@@ -50,6 +59,7 @@ import com.bloodline.android.storage.SharedPreferencesInstallMetadataStore
 import com.bloodline.android.storage.StorageLocations
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -71,6 +81,8 @@ class MainActivity : AppCompatActivity() {
     /** Background thread for one-off work that must never block the UI. */
     private val background: ExecutorService = Executors.newSingleThreadExecutor()
 
+    private lateinit var diagnostics: DiagnosticsManager
+
     private var install: GameInstall? = null
 
     /** Live frame-rate overlay, created only when the user turns it on. */
@@ -91,6 +103,13 @@ class MainActivity : AppCompatActivity() {
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri -> if (uri != null) onFolderPicked(uri) }
+
+    /** Copies the latest report wherever the user wants it. */
+    private val saveReportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) saveReportTo(uri)
+    }
 
     private val settingsLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -128,8 +147,12 @@ class MainActivity : AppCompatActivity() {
             appVersion = BuildConfig.VERSION_NAME,
         )
 
+        diagnostics = DiagnosticsProvider.get(this, BuildConfig.VERSION_NAME)
+        val unfinishedSession = diagnostics.startSession()
+
         bindStaticContent()
         bindRuntimeRows()
+        refreshDiagnosticsCard()
 
         // Renders the remembered result straight away, and only scans when that
         // result is missing or stale. This is what makes reopening fast.
@@ -147,6 +170,25 @@ class MainActivity : AppCompatActivity() {
         binding.settingsButton.setOnClickListener {
             settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
         }
+
+        binding.diagnosticsGenerateButton.setOnClickListener {
+            generateReport(session = null, classification = SessionEnd.UNKNOWN)
+        }
+        binding.diagnosticsSaveButton.setOnClickListener {
+            val report = diagnostics.latestReport()
+            if (report == null) {
+                showMessage(getString(R.string.diagnostics_nothing_to_share))
+            } else {
+                saveReportLauncher.launch(report.name)
+            }
+        }
+        binding.diagnosticsShareButton.setOnClickListener { shareLatestReport() }
+        binding.diagnosticsDeleteButton.setOnClickListener { deleteLatestReport() }
+
+        // The previous run never said goodbye, so record what it left behind.
+        if (unfinishedSession != null) {
+            generateReport(session = unfinishedSession, classification = unfinishedSession.classification)
+        }
     }
 
     override fun onResume() {
@@ -155,6 +197,7 @@ class MainActivity : AppCompatActivity() {
         // settings screen shows up the moment the user comes back.
         SettingsApplier.apply(this, settings)
         updateFpsOverlay()
+        diagnostics.noteForegrounded()
 
         // Deliberately no rescan here: the cached result is still valid, and
         // re-walking the game folder on every resume is what made reopening the
@@ -164,6 +207,21 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         fpsMeter.stop()
+    }
+
+    override fun onStop() {
+        diagnostics.noteBackgrounded()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        // Only a deliberate close counts as clean. A crash never gets here, and
+        // neither does Android reclaiming the process, which is exactly how the
+        // next run knows something went wrong.
+        if (isFinishing) {
+            diagnostics.closeCleanly()
+        }
+        super.onDestroy()
     }
 
     // ---------------------------------------------------------------- content
@@ -571,6 +629,183 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, binding.launchHint.text, Toast.LENGTH_SHORT).show()
         }
         // Launching itself is implemented together with the runtime container.
+    }
+
+    // ------------------------------------------------------------ diagnostics
+
+    private fun refreshDiagnosticsCard() {
+        val report = diagnostics.latestReport()
+
+        if (report == null) {
+            binding.diagnosticsStatus.rowTitle.text = getString(R.string.diagnostics_none)
+            binding.diagnosticsStatus.rowDetail.text = getString(R.string.diagnostics_none_detail)
+            applyDiagnosticsChip(null)
+            binding.diagnosticsDetail.text = ""
+            binding.diagnosticsDetail.isVisible = false
+        } else {
+            binding.diagnosticsStatus.rowTitle.text = ReportBuilder.headline(report.classification)
+            binding.diagnosticsStatus.rowDetail.text = report.name
+            applyDiagnosticsChip(report)
+            binding.diagnosticsDetail.text = getString(
+                R.string.diagnostics_report_size,
+                formatTimestamp(report.createdAtMillis),
+                formatSize(report.sizeBytes),
+            )
+            binding.diagnosticsDetail.isVisible = true
+        }
+
+        val hasReport = report != null
+        binding.diagnosticsSaveButton.isEnabled = hasReport
+        binding.diagnosticsShareButton.isEnabled = hasReport
+        binding.diagnosticsDeleteButton.isEnabled = hasReport
+    }
+
+    private fun applyDiagnosticsChip(report: CrashReport?) {
+        val (label, color) = when (report?.classification) {
+            SessionEnd.CRASH -> getString(R.string.status_crash) to R.color.blood_400
+            SessionEnd.KILLED_WHILE_BACKGROUNDED ->
+                getString(R.string.status_background_kill) to R.color.status_partial
+
+            SessionEnd.UNKNOWN -> getString(R.string.status_unclean) to R.color.status_partial
+            else -> getString(R.string.status_none) to R.color.ash
+        }
+
+        val resolved = ContextCompat.getColor(this, color)
+        val chip = binding.diagnosticsStatus.statusChip
+
+        chip.text = label
+        chip.setTextColor(resolved)
+        ViewCompat.setBackgroundTintList(
+            chip,
+            ColorStateList.valueOf(ColorUtils.setAlphaComponent(resolved, 45)),
+        )
+        ViewCompat.setBackgroundTintList(
+            binding.diagnosticsStatus.statusDot,
+            ColorStateList.valueOf(resolved),
+        )
+    }
+
+    /** Writes a report on a background thread; zipping and probing cost time. */
+    private fun generateReport(session: UnfinishedSession?, classification: SessionEnd) {
+        binding.diagnosticsGenerateButton.isEnabled = false
+        binding.diagnosticsGenerateButton.text = getString(R.string.install_scanning_hint_short)
+
+        background.execute {
+            val inputs = reportInputs()
+            val report = runCatching {
+                diagnostics.generateReport(session, classification, inputs)
+            }.getOrNull()
+
+            runOnUiThread {
+                binding.diagnosticsGenerateButton.isEnabled = true
+                binding.diagnosticsGenerateButton.text = getString(R.string.diagnostics_generate)
+                refreshDiagnosticsCard()
+                if (report != null) {
+                    showMessage(getString(R.string.diagnostics_generated))
+                    appendDiagnosticsNote(getString(R.string.diagnostics_auto_generated))
+                }
+            }
+        }
+    }
+
+    /** Everything a report should describe, gathered here where it is known. */
+    private fun reportInputs() = ReportInputs(
+        settings = settings.snapshot(),
+        runtime = runtimeComponents().associate { component ->
+            component.title to getString(component.status.labelRes())
+        },
+        install = installFacts(),
+        nativeProbe = nativeProbeResult?.output,
+    )
+
+    /**
+     * What we know about the game files.
+     *
+     * The folder path is deliberately left out: a report gets shared, and a
+     * path can contain the owner's name.
+     */
+    private fun installFacts(): Map<String, String> {
+        val metadata = installRepository.cached()
+        return linkedMapOf(
+            "Verified" to (metadata?.let { formatTimestamp(it.verifiedAtMillis) } ?: "never"),
+            "Status" to when {
+                metadata == null -> "not scanned yet"
+                metadata.install() == null -> "no game files found"
+                metadata.install()!!.isComplete -> "game files detected"
+                else -> "partial install, data folder missing"
+            },
+            "Location kind" to (metadata?.kind?.name ?: "unknown"),
+            "Data folder present" to (metadata?.hasDataDirectory?.toString() ?: "unknown"),
+            "Entries examined" to (metadata?.entriesExamined?.toString() ?: "0"),
+        )
+    }
+
+    private fun shareLatestReport() {
+        val report = diagnostics.latestReport() ?: run {
+            showMessage(getString(R.string.diagnostics_nothing_to_share))
+            return
+        }
+
+        val uri = runCatching {
+            FileProvider.getUriForFile(this, "$packageName.files", report.file)
+        }.getOrNull()
+        if (uri == null) {
+            showMessage(getString(R.string.diagnostics_nothing_to_share))
+            return
+        }
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/zip"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, report.name)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        try {
+            startActivity(Intent.createChooser(intent, getString(R.string.diagnostics_share)))
+        } catch (_: ActivityNotFoundException) {
+            showMessage(getString(R.string.diagnostics_no_app))
+        }
+    }
+
+    private fun saveReportTo(destination: Uri) {
+        val report = diagnostics.latestReport() ?: return
+
+        val copied = runCatching {
+            contentResolver.openOutputStream(destination)?.use { out ->
+                report.file.inputStream().use { it.copyTo(out) }
+            } != null
+        }.getOrDefault(false)
+
+        showMessage(
+            if (copied) {
+                getString(R.string.diagnostics_saved)
+            } else {
+                getString(R.string.diagnostics_nothing_to_share)
+            }
+        )
+    }
+
+    private fun deleteLatestReport() {
+        val report = diagnostics.latestReport() ?: return
+        diagnostics.delete(report)
+        refreshDiagnosticsCard()
+        showMessage(getString(R.string.diagnostics_deleted))
+    }
+
+    private fun appendDiagnosticsNote(text: String) {
+        binding.diagnosticsDetail.isVisible = true
+        binding.diagnosticsDetail.text = listOf(
+            binding.diagnosticsDetail.text.toString(),
+            text,
+        ).filter { it.isNotBlank() }.joinToString("
+")
+    }
+
+    private fun formatSize(bytes: Long): String = when {
+        bytes >= 1024 * 1024 -> String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+        bytes >= 1024 -> "${bytes / 1024} KB"
+        else -> "$bytes B"
     }
 
     // ------------------------------------------------------------ fps overlay

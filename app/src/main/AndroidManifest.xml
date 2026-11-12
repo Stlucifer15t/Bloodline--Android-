@@ -44,6 +44,20 @@
             </intent-filter>
         </activity>
 
+        <!--
+            Lets the user share or save a diagnostics report. Only the reports
+            folder is reachable through it; see res/xml/file_paths.xml.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <activity
             android:name=".ui.SettingsActivity"
             android:exported="false"

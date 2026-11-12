@@ -317,6 +317,77 @@
 
         </LinearLayout>
 
+        <!-- ============================ Diagnostics ======================= -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/card_surface"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                style="@style/Text.SectionTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/section_diagnostics" />
+
+            <include
+                android:id="@+id/diagnosticsStatus"
+                layout="@layout/view_status_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp" />
+
+            <TextView
+                android:id="@+id/diagnosticsDetail"
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/diagnostics_none_detail" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/diagnosticsGenerateButton"
+                    style="@style/Widget.Bloodlines.SmallButton"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:text="@string/diagnostics_generate" />
+
+                <Button
+                    android:id="@+id/diagnosticsSaveButton"
+                    style="@style/Widget.Bloodlines.SmallButton"
+                    android:layout_width="0dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:text="@string/diagnostics_save" />
+
+                <Button
+                    android:id="@+id/diagnosticsShareButton"
+                    style="@style/Widget.Bloodlines.SmallButton"
+                    android:layout_width="0dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:text="@string/diagnostics_share" />
+
+                <Button
+                    android:id="@+id/diagnosticsDeleteButton"
+                    style="@style/Widget.Bloodlines.SmallButton"
+                    android:layout_width="0dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:text="@string/diagnostics_delete" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
         <!-- ============================== Launch =========================== -->
         <Button
             android:id="@+id/launchButton"

@@ -12,6 +12,7 @@
     <string name="section_runtime">Compatibility Runtime</string>
     <string name="section_graphics">Graphics</string>
     <string name="section_audio">Audio</string>
+    <string name="section_diagnostics">Diagnostics</string>
 
     <!-- Installation card -->
     <string name="install_not_found">No game files found</string>
@@ -46,6 +47,10 @@
     <string name="status_ready">Ready</string>
     <string name="status_partial">Partial</string>
     <string name="status_not_integrated">Not integrated</string>
+    <string name="status_crash">Crash</string>
+    <string name="status_background_kill">Background stop</string>
+    <string name="status_unclean">Unclean exit</string>
+    <string name="status_none">None</string>
 
     <!-- Graphics card (placeholder) -->
     <string name="graphics_renderer">Renderer</string>
@@ -62,6 +67,24 @@
     <string name="audio_output">Output</string>
     <string name="audio_output_value">AAudio / OpenSL ES</string>
     <string name="audio_placeholder_note">Placeholder. Audio routing is wired up together with the runtime container.</string>
+
+    <!-- Diagnostics -->
+    <string name="diagnostics_none">No reports yet</string>
+    <string name="diagnostics_none_detail">A report is written automatically when the app closes unexpectedly. It holds this app\'s own logs, device facts and your settings — never your personal files.</string>
+    <string name="diagnostics_latest">Latest report</string>
+    <string name="diagnostics_generate">Generate</string>
+    <string name="diagnostics_save">Save</string>
+    <string name="diagnostics_share">Share</string>
+    <string name="diagnostics_delete">Delete</string>
+    <string name="diagnostics_report_size">%1$s · %2$s</string>
+    <string name="diagnostics_generated">Report written</string>
+    <string name="diagnostics_saved">Report saved</string>
+    <string name="diagnostics_deleted">Report deleted</string>
+    <string name="diagnostics_nothing_to_share">There is no report to share yet</string>
+    <string name="diagnostics_no_app">No app on this device can open a ZIP file</string>
+    <string name="diagnostics_auto_generated">The last session did not close properly, so a report was written.</string>
+    <string name="diagnostics_last_session_clean">The last session closed normally.</string>
+    <string name="diagnostics_reports_kept">%1$d of %2$d reports kept, oldest deleted automatically</string>
 
     <!-- Launch -->
     <string name="launch_game">Launch Game</string>
@@ -85,6 +108,7 @@
     <string name="scan_counts">%1$,d entries examined · %2$,d folders</string>
     <string name="scan_failed">The scan could not finish: %1$s</string>
     <string name="install_verified_at">Verified %1$s · %2$,d entries examined</string>
+    <string name="install_scanning_hint_short">Working…</string>
     <string name="install_scanning_hint">Reading your game folder in the background. The launcher stays responsive while this runs.</string>
     <string name="import_already_running">A scan is already running</string>
 
