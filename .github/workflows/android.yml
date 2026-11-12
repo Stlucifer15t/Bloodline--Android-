@@ -182,10 +182,13 @@ jobs:
           REPORT="app/build/upstream-packages.txt"
           if [ ! -s "$REPORT" ]; then
             echo "No upstream report was produced."
-            # Visible rather than silent: an empty report is a finding too, and
-            # a step that exits quietly here is how the last two attempts at
-            # publishing this looked like they were working.
-            echo "::warning title=Upstream package verification::no report was produced"
+            # Say why, not just that. This step is continue-on-error, and the
+            # report is the only evidence that the pinned packages still exist
+            # and still hash to what is recorded, so an empty report quietly
+            # retires that evidence while the build stays green. The Gradle log
+            # goes with the annotation, because "no report" does not distinguish
+            # a moved package from a dropped connection from a skipped test.
+            python3 tools/report-annotation.py "$REPORT" gradle-upstream.log
             exit 0
           fi
           {
