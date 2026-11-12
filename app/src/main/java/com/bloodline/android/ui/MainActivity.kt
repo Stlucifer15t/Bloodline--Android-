@@ -1,6 +1,7 @@
 package com.bloodline.android.ui
 
 import android.content.ActivityNotFoundException
+import android.graphics.Rect
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -1224,6 +1225,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         runtimeInstalling = true
         setRuntimeInstallUi(true, getString(R.string.runtime_install_starting))
         updateRuntimeInstallButton()
+        revealRuntimeProgress()
 
         background.execute {
             val outcome = runCatching {
@@ -1261,6 +1263,28 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             progress.index + 1,
             progress.total,
         )
+        // And on the button that was tapped. The bar is two cards down a
+        // scrolling screen, so a download that is progressing looks exactly
+        // like one that is stuck to anyone not already looking at it. The
+        // button is where the user's finger just was.
+        binding.runtimeInstallButton.text = progress.toString()
+    }
+
+    /**
+     * Scrolls the download progress into view.
+     *
+     * The runtime card sits below the header, display and install cards. On a
+     * phone that puts the progress off-screen at the moment the download
+     * starts, which is indistinguishable from nothing happening.
+     */
+    private fun revealRuntimeProgress() {
+        val scroll = binding.launcherScroll
+        val target = binding.runtimeInstallProgress
+        scroll.post {
+            val rect = Rect(0, 0, target.width, target.height)
+            scroll.offsetDescendantRectToMyCoords(target, rect)
+            scroll.smoothScrollTo(0, (rect.top - SCROLL_MARGIN_PX).coerceAtLeast(0))
+        }
     }
 
     private fun onRuntimeInstalled(outcome: RuntimeAcquisition.Outcome) {
@@ -1534,5 +1558,8 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         const val PROBE_RUNTIME = "runtime"
         const val PROBE_GRAPHICS = "graphics"
         const val PROBE_PROCESS = "process"
+
+        /** Breathing room above the progress when the card is scrolled to. */
+        const val SCROLL_MARGIN_PX = 48
     }
 }

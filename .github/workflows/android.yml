@@ -271,22 +271,39 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee gradle-assemble.log
 
-      - name: Verify the native probes are packaged
-        # Both probes are executables renamed to lib*.so, because Android only
-        # extracts (and permits executing) files that look like shared
-        # libraries. If either is missing from lib/<abi>/, the launcher cannot
-        # measure the device and the future runtime cannot be started.
+      - name: Verify the APK carries what the runtime needs
+        # Two kinds of thing have to be inside the APK, and no unit test can
+        # see either of them:
+        #
+        #   * the native probes — executables renamed to lib*.so, because
+        #     Android only extracts and permits executing files that look like
+        #     shared libraries.
+        #   * libzstd-jni — which zstd-jni publishes only in its Android
+        #     archive. Declaring the plain jar compiles, and unit tests pass on
+        #     the JVM where the jar's desktop binary loads. On a device the
+        #     first Zstandard-compressed package then dies with
+        #     `dlopen failed: library "libzstd-jni-1.5.6-3.so" not found`,
+        #     which is exactly what the first real install did.
+        #
+        # A missing native library is a packaging fault, so the only place it
+        # can be caught is inside the built artifact.
         run: |
           set -euo pipefail
           APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
           echo "Inspecting $APK"
+          LIBS=$(unzip -l "$APK" | awk '{print $4}' | grep -E '^lib/.+\.so$' || true)
 
-          for PROBE in libnative_probe.so libruntime_probe.so; do
-            if unzip -l "$APK" | grep -E "lib/[^/]+/$PROBE"; then
-              echo "$PROBE found in the APK."
+          # Annotated, not just echoed: the log host is unreachable from
+          # outside the Actions UI, and what is actually in lib/ is worth being
+          # able to read back.
+          python3 -c 'import sys; print("::notice title=APK native libraries::" + sys.stdin.read().replace("%","%25").replace("\n","%0A"))' <<< "$LIBS"
+
+          for NEEDED in libnative_probe.so libruntime_probe.so libzstd-jni; do
+            if grep -q "$NEEDED" <<< "$LIBS"; then
+              echo "$NEEDED is in the APK."
             else
-              echo "::error::$PROBE is missing from the APK"
-              unzip -l "$APK" | grep -E "lib/" | head -n 40
+              echo "::error::$NEEDED is missing from the APK's native libraries"
+              echo "$LIBS"
               exit 1
             fi
           done

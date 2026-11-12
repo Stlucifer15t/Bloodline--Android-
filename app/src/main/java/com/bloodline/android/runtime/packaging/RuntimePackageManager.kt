@@ -107,6 +107,21 @@ class RuntimePackageManager(
         } catch (error: SecurityException) {
             staged.delete()
             return State.Failed("${pack.name} was refused: ${error.message}")
+        } catch (error: LinkageError) {
+            // A native library that is not in the APK arrives as an Error, not
+            // an Exception, so it flew past both handlers above, past
+            // installAll entirely, and landed in the activity's catch-all —
+            // which is why the phone said "Installing the runtime failed:
+            // dlopen failed: library "libzstd-jni-1.5.6-3.so" not found", with
+            // no package named and no way to tell a packaging fault from a
+            // download fault. Unpacking is where a missing .so shows up, so
+            // unpacking is where it is reported.
+            //
+            // LinkageError specifically, not Error generally: an
+            // OutOfMemoryError part-way through a transfer should still
+            // propagate rather than be filed as a failed package.
+            staged.delete()
+            return State.Failed("${pack.name} could not be unpacked: ${error.message}")
         }
     }
 
