@@ -10,6 +10,7 @@ data class ReportInputs(
     val runtime: Map<String, String> = emptyMap(),
     val install: Map<String, String> = emptyMap(),
     val nativeProbe: String? = null,
+    val runtimeProbe: String? = null,
 )
 
 /**
@@ -107,6 +108,7 @@ class DiagnosticsManager(
             "session.txt",
         ) + listOfNotNull(
             "native-probe.txt".takeIf { inputs.nativeProbe != null },
+            "runtime-probe.txt".takeIf { inputs.runtimeProbe != null },
         ) + logs.map { "logs/${it.name}" }
 
         sections["summary.txt"] = ReportBuilder.summary(
@@ -124,6 +126,9 @@ class DiagnosticsManager(
         sections["session.txt"] = ReportBuilder.section("Session", sessionFacts(session))
         inputs.nativeProbe?.let {
             sections["native-probe.txt"] = "Bundled native probe\n-------------------\n$it\n"
+        }
+        inputs.runtimeProbe?.let {
+            sections["runtime-probe.txt"] = "Runtime capability probe\n------------------------\n$it\n"
         }
 
         return archive.write(

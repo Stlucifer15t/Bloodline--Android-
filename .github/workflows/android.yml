@@ -88,21 +88,25 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee gradle-assemble.log
 
-      - name: Verify the native probe is packaged
-        # The whole point of Milestone 3: the probe is an executable renamed to
-        # libnative_probe.so, and Android only extracts (and permits executing)
-        # files that look like shared libraries. If it is missing from lib/<abi>/,
-        # nothing in the future runtime will ever be able to run.
+      - name: Verify the native probes are packaged
+        # Both probes are executables renamed to lib*.so, because Android only
+        # extracts (and permits executing) files that look like shared
+        # libraries. If either is missing from lib/<abi>/, the launcher cannot
+        # measure the device and the future runtime cannot be started.
         run: |
+          set -euo pipefail
           APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
           echo "Inspecting $APK"
-          if unzip -l "$APK" | grep -E "lib/[^/]+/libnative_probe\.so"; then
-            echo "Native probe found in the APK."
-          else
-            echo "::error::libnative_probe.so is missing from the APK"
-            unzip -l "$APK" | head -n 40
-            exit 1
-          fi
+
+          for PROBE in libnative_probe.so libruntime_probe.so; do
+            if unzip -l "$APK" | grep -E "lib/[^/]+/$PROBE"; then
+              echo "$PROBE found in the APK."
+            else
+              echo "::error::$PROBE is missing from the APK"
+              unzip -l "$APK" | grep -E "lib/" | head -n 40
+              exit 1
+            fi
+          done
 
       - name: Locate APK
         id: apk
@@ -128,9 +132,10 @@ jobs:
           compression-level: 6
 
       - name: Prepare the release signing key
-        # The keystore is never committed. When repository secrets provide one
-        # it is decoded here; without them the release APK is built unsigned
-        # (which still verifies the release configuration) and not uploaded.
+        # Optional. When repository secrets provide the real key it is decoded
+        # here and used for both APKs. Without them the build falls back to the
+        # committed project key, which is stable but not a secret; see
+        # tools/make-signing-key.py.
         id: signing
         env:
           KEYSTORE_BASE64: ${{ secrets.BLOODLINE_KEYSTORE_BASE64 }}
@@ -142,7 +147,7 @@ jobs:
             echo "Release APK will be signed."
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No signing secrets configured: the release APK will be unsigned and is not uploaded."
+            echo "::notice::No signing secrets configured: both APKs are signed with the committed project key instead."
           fi
 
       - name: Build release APK
@@ -155,8 +160,34 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon --stacktrace :app:assembleRelease 2>&1 | tee gradle-release.log
 
+      - name: Verify the APK signatures
+        # An APK signed with a key that changes between runs cannot be
+        # installed over the previous one: the user has to uninstall first.
+        # This proves both APKs are signed, and with the same certificate.
+        run: |
+          set -euo pipefail
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+
+          for APK in app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk; do
+            [ -f "$APK" ] || continue
+            echo "== $APK"
+            "$APKSIGNER" verify --print-certs --verbose "$APK" | grep -E "Verifies|DN:|SHA-?256|WARNING|DOES NOT"
+          done
+
+          DEBUG_CERT=$("$APKSIGNER" verify --print-certs "$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)" | grep -o 'DN:.*' | head -n 1)
+          RELEASE_CERT=$("$APKSIGNER" verify --print-certs "$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)" | grep -o 'DN:.*' | head -n 1)
+
+          if [ -z "$DEBUG_CERT" ] || [ -z "$RELEASE_CERT" ]; then
+            echo "::error::An APK was built without a signature"
+            exit 1
+          fi
+          if [ "$DEBUG_CERT" != "$RELEASE_CERT" ]; then
+            echo "::error::The debug and release APKs are signed differently: $DEBUG_CERT vs $RELEASE_CERT"
+            exit 1
+          fi
+          echo "Both APKs are signed with $DEBUG_CERT"
+
       - name: Upload release APK
-        if: ${{ steps.signing.outputs.available == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: bloodlines-release-apk

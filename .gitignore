@@ -35,5 +35,10 @@ keystore.properties
 *.jks
 *.keystore
 
+# Exception: app/bloodline-signing.p12 IS committed. It is public by design
+# (password "bloodline") and exists so every build installs over the previous
+# one instead of demanding an uninstall. See tools/make-signing-key.py.
+!app/bloodline-signing.p12
+
 # NOTE: gradle/wrapper/gradle-wrapper.jar is intentionally NOT ignored -
 # the wrapper jar must be committed so CI can bootstrap Gradle.

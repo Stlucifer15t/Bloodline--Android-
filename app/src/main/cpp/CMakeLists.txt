@@ -21,3 +21,22 @@ set_target_properties(native_probe PROPERTIES
     PREFIX "lib"
     SUFFIX ".so"
 )
+
+#
+# Runtime capability probe
+# ------------------------
+# Same packaging trick, different question. native_probe proved a bundled
+# executable can run at all; this one measures what the *device* allows, which
+# decides how the compatibility runtime can be built:
+#
+#   ptrace          PRoot and every ptrace based rootless container need it
+#   seccomp         how tightly the process is already filtered
+#   memfd + exec    the likeliest way to launch binaries under Android's W^X
+#   32-bit support  Box86, which would run the 32-bit x86 game, is itself 32-bit
+#
+add_executable(runtime_probe runtime_probe.c)
+
+set_target_properties(runtime_probe PROPERTIES
+    PREFIX "lib"
+    SUFFIX ".so"
+)

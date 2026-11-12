@@ -44,9 +44,10 @@ import com.bloodline.android.runtime.ComponentIds
 import com.bloodline.android.runtime.IntegrationStatus
 import com.bloodline.android.runtime.LaunchReadiness
 import com.bloodline.android.runtime.LaunchState
-import com.bloodline.android.runtime.NativeProbeCache
+import com.bloodline.android.runtime.ProbeCache
 import com.bloodline.android.runtime.NativeProbe
 import com.bloodline.android.runtime.RuntimeComponent
+import com.bloodline.android.runtime.RuntimeProbe
 import com.bloodline.android.runtime.RuntimeRegistry
 import com.bloodline.android.settings.FpsMeter
 import com.bloodline.android.settings.SettingsApplier
@@ -98,6 +99,11 @@ class MainActivity : AppCompatActivity() {
      * start does not pay for work whose answer cannot have changed.
      */
     private var nativeProbeResult: NativeProbe.Result? = null
+
+    /** Measured capabilities of this device, from the runtime probe. */
+    private var runtimeProbeResult: RuntimeProbe.Result? = null
+
+    private val probeCache: ProbeCache by lazy { ProbeCache(this) }
     private var nativeHostingStatus: IntegrationStatus = IntegrationStatus.NOT_INTEGRATED
 
     private val folderPicker = registerForActivityResult(
@@ -158,11 +164,22 @@ class MainActivity : AppCompatActivity() {
         // result is missing or stale. This is what makes reopening fast.
         ensureInstall()
 
-        val cachedProbe = NativeProbeCache(this).load(BuildConfig.VERSION_NAME)
+        val cachedProbe = probeCache.load(PROBE_NATIVE, BuildConfig.VERSION_NAME)
         if (cachedProbe != null) {
-            onNativeProbeFinished(cachedProbe)
+            onNativeProbeFinished(
+                NativeProbe.Result(cachedProbe.exitCode, cachedProbe.output),
+            )
         } else {
             runNativeProbe()
+        }
+
+        val cachedRuntime = probeCache.load(PROBE_RUNTIME, BuildConfig.VERSION_NAME)
+        if (cachedRuntime != null) {
+            onRuntimeProbeFinished(
+                RuntimeProbe.Result(cachedRuntime.exitCode, cachedRuntime.output),
+            )
+        } else {
+            runRuntimeProbe()
         }
 
         binding.importButton.setOnClickListener { folderPicker.launch(null) }
@@ -256,6 +273,13 @@ class MainActivity : AppCompatActivity() {
             R.string.install_search_path_label,
             resources.getQuantityString(R.plurals.install_search_path_value, rootCount, rootCount),
         )
+
+        bindConfigRow(
+            binding.runtimeCapability,
+            R.string.runtime_capability_label,
+            getString(R.string.runtime_capability_pending),
+        )
+        binding.runtimeCapability.root.setOnClickListener { showRuntimeProbeOutput() }
 
         binding.footerVersion.text = getString(R.string.footer_version, BuildConfig.VERSION_NAME)
     }
@@ -577,10 +601,60 @@ class MainActivity : AppCompatActivity() {
         Thread {
             val result = NativeProbe.run(this, cacheDir)
             runOnUiThread {
-                NativeProbeCache(this).save(BuildConfig.VERSION_NAME, result)
+                probeCache.save(
+                    PROBE_NATIVE,
+                    BuildConfig.VERSION_NAME,
+                    ProbeCache.Snapshot(result.exitCode, result.output),
+                )
                 onNativeProbeFinished(result)
             }
         }.start()
+    }
+
+    /** Forks children and pokes at seccomp, so it stays off the main thread. */
+    private fun runRuntimeProbe() {
+        background.execute {
+            val result = RuntimeProbe.run(this)
+            runOnUiThread {
+                probeCache.save(
+                    PROBE_RUNTIME,
+                    BuildConfig.VERSION_NAME,
+                    ProbeCache.Snapshot(result.exitCode, result.output),
+                )
+                onRuntimeProbeFinished(result)
+            }
+        }
+    }
+
+    private fun onRuntimeProbeFinished(result: RuntimeProbe.Result) {
+        if (isFinishing || isDestroyed) return
+
+        runtimeProbeResult = result
+
+        binding.runtimeCapability.configValue.text = if (result.isSuccessful) {
+            RuntimeProbe.summary(result.output)
+        } else {
+            getString(R.string.runtime_capability_failed, result.exitCode)
+        }
+    }
+
+    private fun showRuntimeProbeOutput() {
+        val result = runtimeProbeResult
+        val message = if (result == null) {
+            getString(R.string.runtime_capability_pending)
+        } else {
+            buildString {
+                appendLine("exit code: ${result.exitCode}")
+                appendLine()
+                append(result.output.trimEnd())
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.runtime_capability_label)
+            .setMessage(message)
+            .setPositiveButton(R.string.import_dialog_positive, null)
+            .show()
     }
 
     private fun onNativeProbeFinished(result: NativeProbe.Result) {
@@ -716,6 +790,7 @@ class MainActivity : AppCompatActivity() {
         },
         install = installFacts(),
         nativeProbe = nativeProbeResult?.output,
+        runtimeProbe = runtimeProbeResult?.output,
     )
 
     /**
@@ -859,5 +934,11 @@ class MainActivity : AppCompatActivity() {
     private fun removeFpsOverlay() {
         fpsOverlay?.let { (window.decorView as ViewGroup).removeView(it) }
         fpsOverlay = null
+    }
+
+    private companion object {
+        /** Cache keys for the two bundled probes. */
+        const val PROBE_NATIVE = "native"
+        const val PROBE_RUNTIME = "runtime"
     }
 }
