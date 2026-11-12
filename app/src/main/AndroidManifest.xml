@@ -3,21 +3,41 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-        No permissions are requested at this stage.
-
-        The launcher only reads app-specific storage (getExternalFilesDir /
-        filesDir), which requires no runtime permission and works under
-        Android 11+ scoped storage. Permissions such as POST_NOTIFICATIONS or
-        storage access via the Storage Access Framework will be added in the
-        milestone that introduces the runtime and the game-file importer.
+        Only what the app genuinely uses. Game files are read through the
+        Storage Access Framework and app-specific storage (getExternalFilesDir
+        / filesDir), neither of which needs a runtime permission.
 
         IMPORTANT (future native runtime): the Android 10+ W^X policy forbids
         executing binaries out of the writable app data directory. The native
         runtime therefore has to ship its executables as shared libraries
         (lib*.so) in the APK so that the package installer extracts them into
         the executable, read-only nativeLibraryDir. That is why
-        android:extractNativeLibs is pinned to "true" here.
+        android:extractNativeLibs is pinned to "true" here. Wine itself is
+        unaffected: exec() from app data is still permitted for a targetSdk 28
+        app, which is precisely why this one is pinned to 28 rather than 36.
     -->
+    <!--
+        Required by the runtime acquisition path, and by nothing else: Wine and
+        the WoW64 layer are downloaded from their upstream releases on first run
+        instead of being bundled.
+
+        This was missing for the whole of the work that built the downloader.
+        No unit test could have caught it — every one hands
+        RuntimePackageManager either a fake or a server on localhost, and CI
+        does not install the APK — so the first real download failed inside
+        URL.openConnection() with "Permission denied". The bug was a missing
+        declaration rather than wrong code, which is the one shape a unit test
+        cannot see, so CI now checks the manifest (see android.yml).
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        Read-only, and only so a 227 MB download can say "no connection"
+        before it starts rather than surfacing a socket error the user cannot
+        act on. No runtime prompt.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:name=".BloodlinesApplication"
         android:allowBackup="false"

@@ -189,6 +189,29 @@ jobs:
           fi
           gh pr comment 8 --body-file /tmp/upstream-comment.md
 
+      - name: Check the manifest declares what the downloader needs
+        # The runtime downloads Wine, so the app needs android.permission.INTERNET.
+        # It was absent for the whole of the work that built the downloader, and
+        # the first real download on a real phone failed inside
+        # URL.openConnection() with "Permission denied".
+        #
+        # No unit test can catch this. Every one of them hands
+        # RuntimePackageManager either a fake or a server on localhost, and CI
+        # never installs the APK. The bug is a missing declaration rather than
+        # wrong code, which is exactly the shape a unit test cannot see, so the
+        # manifest is checked directly against the code that needs it.
+        run: |
+          set -euo pipefail
+          MANIFEST=app/src/main/AndroidManifest.xml
+          if grep -rql "HttpURLConnection\|URL(" app/src/main/java; then
+            if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
+              echo "::error::$MANIFEST does not declare android.permission.INTERNET"
+              echo "::error::The runtime fetches Wine over HTTP; without this the first download fails with Permission denied."
+              exit 1
+            fi
+            echo "Manifest declares INTERNET, and the downloader needs it."
+          fi
+
       - name: Run Android lint
         id: lint
         run: |
