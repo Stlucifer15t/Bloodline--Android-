@@ -206,42 +206,70 @@ the "never auto-select the experimental route" rule is encoded in
 
 ## 6. Audio
 
-Bloodlines uses **DirectSound3D** [2](https://www.mobygames.com/game/15663/vampire-the-masquerade-bloodlines/specs/).
-The route is Wine's ALSA/pulse backend bridged to a host API. Two host targets:
+Bloodlines uses **DirectSound3D**. The chain is longer than it looks, and the
+number of hops is the reason this needs spelling out:
 
-- **AAudio** — lower latency, Android 8.0+ (our `minSdk` is 26, so it is always
-  available).
-- **OpenSL ES** — broader compatibility, deprecated but still present.
+```
+Bloodlines ──▶ DirectSound3D ──▶ Wine's ALSA driver ──▶ an ALSA plugin ──▶ Android
+   (x86)          (in the prefix)       (in the prefix)        (host)       (host)
+```
 
-The launcher already stores an `AudioBackend` preference (Auto / AAudio /
-OpenSL ES). The runtime honours it.
+The last hop is the only one this app owns, and it is not one hop.
 
-The hop this app owns is the last one, and it is done the way ALSA intends: an
-`asound.conf` generated into the runtime folder defines `pcm.!default`, and the
-guest is pointed at it with `ALSA_CONFIG_PATH` and `ALSA_PLUGIN_DIR`. Those two
-variables are what the working Android runtimes set, which is why they are used
-here rather than invented ones. Inside the prefix, Wine is told through the
-registry to use its ALSA driver.
+### What the working implementation actually does
 
-Which plugin `pcm.!default` names is **searched for, not assumed**. The runtime
-packages are scanned on every launch for a library implementing this app's PCM
-type, and:
+Read from Winlator's source, rather than inferred. `android_alsa/` builds
+`asound_module_pcm_android_aserver.so` — an ALSA **ioplug** external plugin
+(`snd_pcm_ioplug_t`), placed where `ALSA_PLUGIN_DIR` points. `asound.conf`
+routes `pcm.!default` to it:
 
-* found — "default" routes through it, at the configured rate and buffer size;
-* not found — "default" is ALSA's own `null` device.
+```
+pcm.!default { type android_aserver }
+ctl.!default { type android_aserver }
+```
 
-The second case is the one that applies today, because that library has not
-been written. It is a supported outcome rather than a failure for a specific
-reason: naming a PCM type nothing implements is not a graceful degradation.
-ALSA fails with "Unknown PCM" the moment Wine opens the device, and the game's
-audio dies with it. The `null` device always resolves — it opens, it accepts
-every sample the game writes, and it emits silence, so the guest sees a sound
-card that works and the rest of the runtime can still be exercised through it.
-The diagnostics distinguish the two, so a report can say "sound is enabled but
-nothing is carrying it" instead of implying both work.
+The plugin does **not** call AAudio or OpenSL ES. It cannot: it runs inside the
+Wine process, which is a foreign-binary process with no access to Android's Java
+APIs. Instead it speaks a small request protocol over a **Unix domain socket** to
+a server in the app's own process, and passes the audio buffer between the two as
+shared memory handed over `SCM_RIGHTS`. The app-side server is the only thing
+that touches `AudioTrack`.
 
-"None" is a real setting, not an absent one: it starts the game muted so that a
-sound-server problem cannot stop the rest of the runtime from being tested.
+So the real design is: guest-side ALSA plugin (C) ⇄ socket + shared memory ⇄
+host-side sink (Kotlin, owning an `AudioTrack`).
+
+### What this project does today
+
+The `asound.conf` written at launch names ALSA's own `null` device, and says so
+in a comment inside the file.
+
+That is a deliberate, reported fallback rather than a working backend. Naming a
+plugin type that nothing implements is not graceful degradation — ALSA fails with
+"Unknown PCM" the moment Wine opens the device, and the game's audio dies with
+it. The `null` device always resolves: it opens, accepts every sample the game
+writes, and emits silence. The guest sees a sound card that works, and the rest
+of the runtime can be exercised through it.
+
+Diagnostics keep the two apart, so a report can say *sound is enabled but
+nothing is carrying it* rather than implying both work:
+
+* `Wine · audio` — enabled, no PCM plugin present, so the game will be silent
+* `Wine · audio` — AAudio · 48000 Hz · 512 frames
+
+The preference stored in the launcher (Auto / AAudio / OpenSL ES / none) is
+honoured throughout, and "none" is a real setting rather than an absent one: it
+starts the game muted so a sound problem cannot block testing everything else.
+
+### What would be needed
+
+Two pieces, and neither exists here yet:
+
+1. **A guest-side ALSA ioplug**, compiled against alsa-lib's external plugin API
+   for the guest ABI, speaking the protocol above.
+2. **A host-side sink** in Kotlin owning an `AudioTrack`, listening on the socket
+   end.
+
+Neither can be compiled or run in this environment, so neither is claimed.
 
 ---
 

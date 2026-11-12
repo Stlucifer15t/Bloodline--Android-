@@ -83,17 +83,29 @@ class RuntimePackageManagerTest {
     }
 
     @Test
-    fun `a package with no published checksum is reported unverified`() {
-        // Upstream publishes no SHA-256 for these assets. Saying "unverified"
-        // is honest; saying nothing, or claiming verification, is not.
+    fun `a package with no checksum is reported unverified`() {
+        // Only two of the five packages have been downloaded and measured; the
+        // rest carry no digest at all. Saying "unverified" is honest; saying
+        // nothing, or claiming verification, is not.
         val (store, manager) = manager("runtime-digest")
-        store.markInstalled(RuntimePackageCatalog.WINE_ARM64EC, 1L)
-
-        val state = manager.stateOf(RuntimePackageCatalog.WINE_ARM64EC)
+        store.markInstalled(RuntimePackageCatalog.FEX, 1L)
 
         assertEquals(
-            RuntimePackageManager.State.Installed(version = "11.3", verified = false),
-            state,
+            RuntimePackageManager.State.Installed(version = "2611", verified = false),
+            manager.stateOf(RuntimePackageCatalog.FEX),
+        )
+    }
+
+    @Test
+    fun `a package whose checksum we measured is reported verified`() {
+        // Wine and the WoW64 layer were fetched and hashed in CI, so an install
+        // of either is checked against a real digest.
+        val (store, manager) = manager("runtime-digest-measured")
+        store.markInstalled(RuntimePackageCatalog.WINE_ARM64EC, 1L)
+
+        assertEquals(
+            RuntimePackageManager.State.Installed(version = "11.3", verified = true),
+            manager.stateOf(RuntimePackageCatalog.WINE_ARM64EC),
         )
     }
 
@@ -154,6 +166,31 @@ class RuntimePackageManagerTest {
         val pack = RuntimePackageCatalog.WOWBOX64.copy(sizeBytes = 8L)
 
         manager.checkExpectedLength(pack, exact)
+    }
+
+    @Test
+    fun `the two packages we have actually downloaded carry the checksum we measured`() {
+        // Measured in CI by fetching the package and hashing the bytes, not
+        // published by upstream, which publishes none. They are pins: they
+        // catch a changed or substituted file. They are not an upstream
+        // attestation, and must never be described as one.
+        assertEquals(
+            "9fe4cfcd5fa4a9ffe5131620843046ec50b8db980aaa8a51cbcac41270c3a6eb",
+            RuntimePackageCatalog.WINE_ARM64EC.sha256,
+        )
+        assertEquals(
+            "8575b947fa674298289ae8089f3e9f2fb936369c88dba07bf223f2ba4f579e52",
+            RuntimePackageCatalog.WOWBOX64.sha256,
+        )
+    }
+
+    @Test
+    fun `a package we have never downloaded is left without a checksum rather than given one`() {
+        // Guessing a checksum would be worse than none: every install would
+        // then fail on a file that is perfectly good.
+        assertTrue(RuntimePackageCatalog.FEX.sha256 == null)
+        assertTrue(RuntimePackageCatalog.BOX64_BIONIC.sha256 == null)
+        assertTrue(RuntimePackageCatalog.WINE_X86_64.sha256 == null)
     }
 
     @Test

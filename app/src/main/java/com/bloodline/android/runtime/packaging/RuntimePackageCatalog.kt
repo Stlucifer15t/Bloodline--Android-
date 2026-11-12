@@ -10,6 +10,14 @@ package com.bloodline.android.runtime.packaging
  *
  * Two deliberate choices:
  *
+ * **The two checksums were measured, not published.** Upstream publishes no
+ * digest for these assets. These were taken from the bytes a real download
+ * returned, in CI, by the verification step that fetches the packages and
+ * reports what it found. That makes them pins rather than signatures: they
+ * detect a changed or substituted file, which is what a pin is for, but they
+ * are not an upstream attestation and should not be described as one. The
+ * packages with no checksum below install as *unverified* and say so.
+ *
  * 1. **Wine is x86_64, and the 32-bit game runs through WoW64.** After the
  *    investigation this is the mainstream path: WOWBox64 or FEX supplies the
  *    WoW64 layer inside a 64-bit prefix. Box86 and a 32-bit prefix are not used,
@@ -64,6 +72,21 @@ object RuntimePackageCatalog {
      * The `.wcp.xz` suffix is not decoration: upstream publishes the same
      * package as plain `.wcp` too, and only the suffixed one is stated to be
      * XZ-compressed. We take the format that is declared rather than guessing.
+     *
+     * **The layout below is observed, not assumed.** This package was fetched
+     * and unpacked in CI: 2210 files, and no `windows` directory at all. Wine
+     * keeps its Windows system files under `lib/wine/`, split by the
+     * architecture they were built for:
+     *
+     * * `bin/wine` — the loader, and the one to use
+     * * `lib/wine/i386-windows` — 32-bit x86, where `cmd.exe` is
+     * * `lib/wine/aarch64-windows` — 64-bit ARM, where `wineboot.exe` is
+     * * `share/wine/wine.inf`
+     * * `prefixPack.txz` — a prebuilt prefix
+     *
+     * The 32-bit directory matters more than it sounds: `cmd.exe` there is a
+     * PE 32-bit x86 Windows console program, and it is what the WoW64 stage
+     * runs to prove the 32-bit path works.
      */
     val WINE_ARM64EC = RuntimePackage(
         id = "wine-11.3-arm64ec",
@@ -73,6 +96,7 @@ object RuntimePackageCatalog {
         abi = "arm64-v8a",
         url = "$NIGHTLIES/Proton/wine/wine-11.3-arm64ec.wcp.xz",
         sizeBytes = 226_178_252L,
+        sha256 = "9fe4cfcd5fa4a9ffe5131620843046ec50b8db980aaa8a51cbcac41270c3a6eb",
         licence = WINE_LICENCE,
         target = "packages/wine-11.3-arm64ec",
         required = true,
@@ -136,6 +160,7 @@ object RuntimePackageCatalog {
         abi = "arm64-v8a",
         url = "$NIGHTLIES/Wowbox64/WOWBox64-0.4.4.wcp",
         sizeBytes = 1_029_612L,
+        sha256 = "8575b947fa674298289ae8089f3e9f2fb936369c88dba07bf223f2ba4f579e52",
         licence = BOX64_LICENCE,
         target = "packages/wowbox64",
         required = true,
