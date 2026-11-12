@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Short blood-red rule that sits under a section or screen heading. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/blood_600" />
+    <size
+        android:height="2dp"
+        android:width="28dp" />
+</shape>

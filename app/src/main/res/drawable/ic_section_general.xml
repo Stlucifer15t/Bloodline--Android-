@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sliders: general preferences. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path android:fillColor="@color/blood_500"
+        android:pathData="M3,6.2h5v1.7H3zM12,6.2h9v1.7h-9zM10,5.1a2.1,2.1 0 1,1 0,4.2 2.1,2.1 0 0,1 0,-4.2z" />
+    <path android:fillColor="@color/blood_500"
+        android:pathData="M3,11.1h9v1.7H3zM16,11.1h5v1.7h-5zM14,10a2.1,2.1 0 1,1 0,4.2 2.1,2.1 0 0,1 0,-4.2z" />
+    <path android:fillColor="@color/blood_500"
+        android:pathData="M3,16h4v1.7H3zM11,16h10v1.7H11zM9,14.9a2.1,2.1 0 1,1 0,4.2 2.1,2.1 0 0,1 0,-4.2z" />
+</vector>

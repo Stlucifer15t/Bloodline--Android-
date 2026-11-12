@@ -1,14 +1,7 @@
 package com.bloodline.android.settings
 
-/** How the launcher (and later the game surface) is oriented. */
-enum class ScreenOrientation {
-    PORTRAIT,
-    LANDSCAPE,
-    FOLLOW_DEVICE,
-}
-
 /** Text and layout scaling inside the app. */
-enum class UiScale(val percent: Int, val fontScale: Float) {
+enum class UiScale(val percent: Int, val scaleFactor: Float) {
     SMALL(85, 0.85f),
     NORMAL(100, 1.0f),
     LARGE(115, 1.15f),
@@ -38,23 +31,34 @@ enum class FpsLimit(val framesPerSecond: Int) {
     }
 }
 
-/** Render resolution as a percentage of the native surface size. */
-enum class ResolutionScale(val percent: Int) {
-    FULL(100),
-    THREE_QUARTERS(75),
-    HALF(50),
-    ;
+/**
+ * Which part of the app currently owns the screen.
+ *
+ * The two phases need different things: the launcher is usable either way up,
+ * while the game is a landscape Windows title that only ever makes sense in
+ * landscape. Keeping them as separate phases is what stops a launcher
+ * preference from being applied while the game is running.
+ */
+enum class OrientationPhase {
+    /** The launcher, the settings screen, diagnostics. */
+    LAUNCHER,
 
-    companion object {
-        fun fromPercent(percent: Int): ResolutionScale? = entries.firstOrNull { it.percent == percent }
-    }
+    /** The game surface. Always landscape, whatever the launcher was doing. */
+    GAMEPLAY,
 }
 
-/** How a fixed aspect ratio is presented on a differently shaped screen. */
-enum class AspectRatioMode {
-    PRESERVE,
-    FIT,
-    STRETCH,
+/**
+ * What the app asks Android for.
+ *
+ * Kept as its own enum rather than storing `ActivityInfo` constants so the
+ * policy below can be unit tested on a plain JVM.
+ */
+enum class OrientationRequest {
+    /** Let the device decide: the launcher works in either orientation. */
+    FOLLOW_DEVICE,
+
+    /** Landscape, following the sensor so either 0° or 180° is accepted. */
+    SENSOR_LANDSCAPE,
 }
 
 /**
@@ -71,11 +75,16 @@ enum class RendererChoice(val isExperimental: Boolean) {
     PANVK_DXVK(isExperimental = true),
 }
 
-/** Audio backend preference for the future audio bridge. */
-enum class AudioBackend {
-    AUTO,
-    AAUDIO,
-    OPENSLES,
+/**
+ * Audio backend preference for the future audio bridge.
+ *
+ * `label` is only for display; persistence uses the enum name, so adding a
+ * label can never invalidate a stored value.
+ */
+enum class AudioBackend(val label: String) {
+    AUTO("Auto"),
+    AAUDIO("AAudio"),
+    OPENSLES("OpenSL ES"),
 }
 
 /** Coarse tuning bundle applied to the runtime once it exists. */

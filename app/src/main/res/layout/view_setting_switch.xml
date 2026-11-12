@@ -1,19 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A settings row with an on/off switch. -->
+<!--
+    A settings row with an on/off switch.
+
+    The switch is the one control allowed to sit beside the text: it is a fixed
+    48dp widget, so unlike a text value it can never grow and squeeze the row.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="?android:attr/selectableItemBackground"
     android:gravity="center_vertical"
-    android:minHeight="48dp"
+    android:minHeight="@dimen/row_min_height"
     android:orientation="horizontal"
-    android:paddingTop="11dp"
-    android:paddingBottom="11dp">
+    android:paddingTop="@dimen/row_padding_vertical"
+    android:paddingBottom="@dimen/row_padding_vertical">
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="12dp"
+        android:layout_marginEnd="@dimen/row_column_gap"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -28,7 +33,7 @@
             style="@style/Text.RowDetail"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp" />
+            android:layout_marginTop="@dimen/space_1" />
 
     </LinearLayout>
 

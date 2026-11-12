@@ -16,8 +16,8 @@
 
         <item name="android:windowBackground">@drawable/bg_launcher</item>
         <item name="android:colorBackground">@color/ink_900</item>
-        <item name="android:statusBarColor">@color/ink_900</item>
-        <item name="android:navigationBarColor">@color/ink_900</item>
+        <item name="android:statusBarColor">@color/ink_950</item>
+        <item name="android:navigationBarColor">@color/ink_950</item>
         <item name="android:windowLightStatusBar" tools:targetApi="23">false</item>
 
         <item name="android:textColorPrimary">@color/bone</item>
@@ -32,19 +32,24 @@
         It exists because the child styles below use dot notation
         (Text.Brand, Text.RowTitle, ...): in Android a dot means "inherit from
         the style named before the dot", so `Text` itself has to be defined.
+
+        hyphenationFrequency is off everywhere: splitting words with hyphens to
+        fit a narrow column looks broken in a dark gothic UI, and the two
+        column rows are narrow by design.
     -->
     <style name="Text">
         <item name="android:includeFontPadding">false</item>
         <item name="android:textColor">@color/bone</item>
+        <item name="android:hyphenationFrequency" tools:targetApi="23">none</item>
     </style>
 
     <!-- Branding -->
     <style name="Text.Brand">
         <item name="android:fontFamily">serif</item>
         <item name="android:textStyle">bold</item>
-        <item name="android:textSize">35sp</item>
+        <item name="android:textSize">@dimen/text_brand</item>
         <item name="android:textColor">@color/bone</item>
-        <item name="android:letterSpacing">0.32</item>
+        <item name="android:letterSpacing">0.24</item>
         <item name="android:includeFontPadding">false</item>
         <item name="android:shadowColor">#CC5C0A10</item>
         <item name="android:shadowDx">0</item>
@@ -54,28 +59,44 @@
 
     <style name="Text.BrandSub">
         <item name="android:fontFamily">sans-serif</item>
-        <item name="android:textSize">11sp</item>
+        <item name="android:textSize">@dimen/text_caption</item>
         <item name="android:textColor">@color/bone_dim</item>
-        <item name="android:letterSpacing">0.34</item>
+        <item name="android:letterSpacing">0.26</item>
         <item name="android:textAllCaps">true</item>
         <item name="android:includeFontPadding">false</item>
     </style>
 
     <style name="Text.Stage">
         <item name="android:fontFamily">sans-serif</item>
-        <item name="android:textSize">9sp</item>
+        <item name="android:textSize">@dimen/text_small</item>
         <item name="android:textColor">@color/ash_dim</item>
-        <item name="android:letterSpacing">0.4</item>
+        <item name="android:letterSpacing">0.3</item>
         <item name="android:textAllCaps">true</item>
         <item name="android:includeFontPadding">false</item>
     </style>
 
-    <!-- Card heading -->
+    <!-- Screen heading (settings). Larger than a card heading, still restrained. -->
+    <style name="Text.ScreenTitle">
+        <item name="android:fontFamily">serif</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">@dimen/text_screen_title</item>
+        <item name="android:textColor">@color/bone</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!--
+        Card and section heading.
+
+        Small caps in blood red with a short rule underneath: this is the only
+        place the accent colour is used for text, so it still means something
+        when it appears.
+    -->
     <style name="Text.SectionTitle">
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">@dimen/text_section</item>
         <item name="android:textColor">@color/blood_400</item>
-        <item name="android:letterSpacing">0.22</item>
+        <item name="android:letterSpacing">0.16</item>
         <item name="android:textAllCaps">true</item>
         <item name="android:includeFontPadding">false</item>
     </style>
@@ -83,47 +104,50 @@
     <!-- Rows inside cards -->
     <style name="Text.RowTitle">
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:textSize">14sp</item>
+        <item name="android:textSize">@dimen/text_row_title</item>
         <item name="android:textColor">@color/bone</item>
         <item name="android:includeFontPadding">false</item>
+        <item name="android:breakStrategy" tools:targetApi="23">simple</item>
     </style>
 
     <style name="Text.RowDetail">
         <item name="android:fontFamily">sans-serif</item>
-        <item name="android:textSize">11.5sp</item>
+        <item name="android:textSize">@dimen/text_detail</item>
         <item name="android:textColor">@color/ash</item>
         <item name="android:lineSpacingExtra">2dp</item>
+        <item name="android:breakStrategy" tools:targetApi="23">simple</item>
     </style>
 
     <style name="Text.Value">
         <item name="android:fontFamily">monospace</item>
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">@dimen/text_value</item>
         <item name="android:textColor">@color/bone_dim</item>
         <item name="android:includeFontPadding">false</item>
+        <item name="android:breakStrategy" tools:targetApi="23">simple</item>
     </style>
 
     <style name="Text.Caption">
         <item name="android:fontFamily">sans-serif</item>
-        <item name="android:textSize">11sp</item>
+        <item name="android:textSize">@dimen/text_caption</item>
         <item name="android:textColor">@color/ash_dim</item>
-        <item name="android:letterSpacing">0.04</item>
+        <item name="android:letterSpacing">0.02</item>
         <item name="android:lineSpacingExtra">3dp</item>
+        <item name="android:breakStrategy" tools:targetApi="23">simple</item>
     </style>
 
     <style name="Text.StatusChip">
         <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:textSize">9.5sp</item>
+        <item name="android:textSize">@dimen/text_chip</item>
         <item name="android:textColor">@color/ash</item>
-        <item name="android:letterSpacing">0.12</item>
+        <item name="android:letterSpacing">0.08</item>
         <item name="android:textAllCaps">true</item>
         <item name="android:includeFontPadding">false</item>
         <item name="android:gravity">center</item>
-        <item name="android:paddingStart">8dp</item>
-        <item name="android:paddingEnd">8dp</item>
+        <item name="android:paddingStart">6dp</item>
+        <item name="android:paddingEnd">6dp</item>
         <item name="android:paddingTop">4dp</item>
         <item name="android:paddingBottom">4dp</item>
     </style>
-
 
     <!--
         Widget styles use dot notation, so every parent in the name has to be
@@ -133,18 +157,62 @@
 
     <style name="Widget.Bloodlines" />
 
-    <!-- Compact button used in rows of four, e.g. the diagnostics card. -->
-    <style name="Widget.Bloodlines.SmallButton">
-        <item name="android:layout_height">40dp</item>
-        <item name="android:background">@drawable/btn_outline</item>
-        <item name="android:letterSpacing">0.08</item>
-        <item name="android:minHeight">0dp</item>
+    <!--
+        Shared button base.
+
+        The height is a MINIMUM, never a fixed value: a fixed 46dp box clipped
+        its own label as soon as the in-app interface scale, or the device font
+        scale, made the text taller. Vertical padding plus minHeight lets the
+        button grow instead.
+    -->
+    <style name="Widget.Bloodlines.Button">
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">@dimen/button_min_height</item>
+        <item name="android:paddingStart">@dimen/button_padding_horizontal</item>
+        <item name="android:paddingEnd">@dimen/button_padding_horizontal</item>
+        <item name="android:paddingTop">@dimen/button_padding_vertical</item>
+        <item name="android:paddingBottom">@dimen/button_padding_vertical</item>
         <item name="android:stateListAnimator">@null</item>
         <item name="android:textAllCaps">true</item>
         <item name="android:textColor">@color/button_text</item>
-        <item name="android:textSize">11sp</item>
         <item name="android:textStyle">bold</item>
-        <item name="android:singleLine">true</item>
     </style>
+
+    <!-- The one primary action on a screen. -->
+    <style name="Widget.Bloodlines.Button.Primary">
+        <item name="android:background">@drawable/btn_primary</item>
+        <item name="android:letterSpacing">0.14</item>
+        <item name="android:textSize">@dimen/text_button_primary</item>
+    </style>
+
+    <!-- Secondary actions. -->
+    <style name="Widget.Bloodlines.Button.Outline">
+        <item name="android:background">@drawable/btn_outline</item>
+        <item name="android:letterSpacing">0.1</item>
+        <item name="android:textSize">@dimen/text_button</item>
+    </style>
+
+    <!--
+        Buttons that share a row, e.g. the diagnostics actions.
+
+        No singleLine: when two of these share a narrow screen the label wraps
+        onto a second line rather than being cut off mid-word.
+    -->
+    <style name="Widget.Bloodlines.Button.Compact">
+        <item name="android:minHeight">@dimen/button_min_height_compact</item>
+        <item name="android:background">@drawable/btn_outline</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:textSize">@dimen/text_caption</item>
+    </style>
+
+    <!--
+        The flat names used by the layouts. Dot notation needs every parent to
+        exist, so these simply restate the three above.
+    -->
+    <style name="Widget.Bloodlines.PrimaryButton" parent="Widget.Bloodlines.Button.Primary" />
+
+    <style name="Widget.Bloodlines.OutlineButton" parent="Widget.Bloodlines.Button.Outline" />
+
+    <style name="Widget.Bloodlines.CompactButton" parent="Widget.Bloodlines.Button.Compact" />
 
 </resources>

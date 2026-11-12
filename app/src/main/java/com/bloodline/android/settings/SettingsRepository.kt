@@ -1,5 +1,10 @@
 package com.bloodline.android.settings
 
+import com.bloodline.android.display.AspectMode
+import com.bloodline.android.display.RenderResolution
+import com.bloodline.android.display.ResolutionScale
+import com.bloodline.android.display.Size
+
 /**
  * Typed access to every launcher setting.
  *
@@ -11,6 +16,15 @@ package com.bloodline.android.settings
  * Some settings cannot take effect yet because the Windows compatibility
  * runtime does not exist. They are still stored (so the runtime reads them the
  * day it arrives) but the UI disables them and says why.
+ *
+ * The display group keeps two different things apart on purpose:
+ *
+ * - **display resolution** ([displayResolution]) is the size the game surface is
+ *   presented at — what the Windows desktop inside the container is told to use.
+ * - **internal render resolution** ([renderScale]) is the fraction of that size
+ *   the game actually renders at before the GPU scales it back up.
+ *
+ * Conflating them is what makes a "resolution" slider meaningless on a phone.
  */
 class SettingsRepository(
     private val store: SettingsStore,
@@ -32,26 +46,98 @@ class SettingsRepository(
 
     // ---------------------------------------------------------- A. display
 
-    /** Render at the surface's native resolution once the runtime exists. */
-    var useNativeResolution: Boolean
-        get() = store.getBoolean(KEY_NATIVE_RESOLUTION, true)
+    /** Size the game surface is presented at. Native follows the real display. */
+    var displayResolution: RenderResolution
+        get() = store.getEnum(KEY_DISPLAY_RESOLUTION, RenderResolution.NATIVE)
         set(value) {
-            store.putBoolean(KEY_NATIVE_RESOLUTION, value)
-            notifyChanged(KEY_NATIVE_RESOLUTION)
+            store.putEnum(KEY_DISPLAY_RESOLUTION, value)
+            notifyChanged(KEY_DISPLAY_RESOLUTION)
         }
 
-    var resolutionScale: ResolutionScale
-        get() = store.getEnum(KEY_RESOLUTION_SCALE, ResolutionScale.FULL)
+    /** Used only when [displayResolution] is [RenderResolution.CUSTOM]. */
+    var customDisplayWidth: Int
+        get() = store.getInt(KEY_CUSTOM_WIDTH, DEFAULT_CUSTOM_WIDTH)
+            .coerceIn(RenderResolution.MIN_WIDTH, RenderResolution.MAX_WIDTH)
         set(value) {
-            store.putEnum(KEY_RESOLUTION_SCALE, value)
-            notifyChanged(KEY_RESOLUTION_SCALE)
+            store.putInt(
+                KEY_CUSTOM_WIDTH,
+                value.coerceIn(RenderResolution.MIN_WIDTH, RenderResolution.MAX_WIDTH),
+            )
+            notifyChanged(KEY_CUSTOM_WIDTH)
         }
 
-    var aspectRatio: AspectRatioMode
-        get() = store.getEnum(KEY_ASPECT_RATIO, AspectRatioMode.PRESERVE)
+    var customDisplayHeight: Int
+        get() = store.getInt(KEY_CUSTOM_HEIGHT, DEFAULT_CUSTOM_HEIGHT)
+            .coerceIn(RenderResolution.MIN_HEIGHT, RenderResolution.MAX_HEIGHT)
         set(value) {
-            store.putEnum(KEY_ASPECT_RATIO, value)
-            notifyChanged(KEY_ASPECT_RATIO)
+            store.putInt(
+                KEY_CUSTOM_HEIGHT,
+                value.coerceIn(RenderResolution.MIN_HEIGHT, RenderResolution.MAX_HEIGHT),
+            )
+            notifyChanged(KEY_CUSTOM_HEIGHT)
+        }
+
+    fun customDisplaySize(): Size = Size(customDisplayWidth, customDisplayHeight)
+
+    /**
+     * Internal render resolution, as a percentage of the presented size.
+     *
+     * Rendering below the presented size and upscaling is the cheapest way to
+     * keep a Mali-G52 fed, which is why the scale has a fine-grained ladder
+     * rather than a single "low" step.
+     */
+    var renderScale: ResolutionScale
+        get() = store.getEnum(KEY_RENDER_SCALE, ResolutionScale.FULL)
+        set(value) {
+            store.putEnum(KEY_RENDER_SCALE, value)
+            notifyChanged(KEY_RENDER_SCALE)
+        }
+
+    /** Used only when [renderScale] is [ResolutionScale.CUSTOM]. */
+    var customScalePercent: Int
+        get() = store.getInt(KEY_CUSTOM_SCALE, DEFAULT_CUSTOM_SCALE).coerceIn(
+            ResolutionScale.MIN_PERCENT,
+            ResolutionScale.MAX_PERCENT,
+        )
+        set(value) {
+            store.putInt(
+                KEY_CUSTOM_SCALE,
+                value.coerceIn(ResolutionScale.MIN_PERCENT, ResolutionScale.MAX_PERCENT),
+            )
+            notifyChanged(KEY_CUSTOM_SCALE)
+        }
+
+    /** The scaling actually in effect, resolving the Custom case. */
+    fun effectiveScalePercent(): Int = when (val scale = renderScale) {
+        ResolutionScale.CUSTOM -> customScalePercent
+        else -> scale.percent
+    }
+
+    /** How a frame whose shape differs from the display is fitted to it. */
+    var aspectMode: AspectMode
+        get() = store.getEnum(KEY_ASPECT_MODE, AspectMode.PRESERVE)
+        set(value) {
+            store.putEnum(KEY_ASPECT_MODE, value)
+            notifyChanged(KEY_ASPECT_MODE)
+        }
+
+    /**
+     * Fill the area a preserved frame cannot cover with black bars, instead of
+     * cropping the frame to fill the screen.
+     */
+    var letterboxEnabled: Boolean
+        get() = store.getBoolean(KEY_LETTERBOX, true)
+        set(value) {
+            store.putBoolean(KEY_LETTERBOX, value)
+            notifyChanged(KEY_LETTERBOX)
+        }
+
+    /** Scale a smaller frame up to fill the display instead of showing it 1:1. */
+    var fullscreenScaling: Boolean
+        get() = store.getBoolean(KEY_FULLSCREEN_SCALING, true)
+        set(value) {
+            store.putBoolean(KEY_FULLSCREEN_SCALING, value)
+            notifyChanged(KEY_FULLSCREEN_SCALING)
         }
 
     /** Hide the system bars. Takes effect immediately on the launcher. */
@@ -60,13 +146,6 @@ class SettingsRepository(
         set(value) {
             store.putBoolean(KEY_IMMERSIVE, value)
             notifyChanged(KEY_IMMERSIVE)
-        }
-
-    var screenOrientation: ScreenOrientation
-        get() = store.getEnum(KEY_ORIENTATION, ScreenOrientation.PORTRAIT)
-        set(value) {
-            store.putEnum(KEY_ORIENTATION, value)
-            notifyChanged(KEY_ORIENTATION)
         }
 
     /** Keep the screen on while the launcher, and later the game, is in front. */
@@ -169,11 +248,19 @@ class SettingsRepository(
 
     /** Everything currently chosen, for the diagnostics report. */
     fun snapshot(): Map<String, String> = linkedMapOf(
-        "display.nativeResolution" to useNativeResolution.toString(),
-        "display.resolutionScale" to "${resolutionScale.percent}%",
-        "display.aspectRatio" to aspectRatio.name,
+        "display.resolution" to displayResolution.name,
+        "display.customSize" to (
+            if (displayResolution.isCustom) {
+                "${customDisplayWidth}x$customDisplayHeight"
+            } else {
+                "n/a"
+            }
+            ),
+        "display.renderScale" to "${effectiveScalePercent()}%",
+        "display.aspectMode" to aspectMode.name,
+        "display.letterbox" to letterboxEnabled.toString(),
+        "display.fullscreenScaling" to fullscreenScaling.toString(),
         "display.immersive" to immersiveMode.toString(),
-        "display.orientation" to screenOrientation.name,
         "display.keepAwake" to keepScreenAwake.toString(),
         "display.uiScale" to "${uiScale.percent}%",
         "display.brightness" to (
@@ -194,24 +281,63 @@ class SettingsRepository(
         "audio.backend" to audioBackend.name,
     )
 
+    /** Keys of every setting that exists today. */
+    private val allKeys: List<String> get() = listOf(
+        KEY_DISPLAY_RESOLUTION,
+        KEY_CUSTOM_WIDTH,
+        KEY_CUSTOM_HEIGHT,
+        KEY_RENDER_SCALE,
+        KEY_CUSTOM_SCALE,
+        KEY_ASPECT_MODE,
+        KEY_LETTERBOX,
+        KEY_FULLSCREEN_SCALING,
+        KEY_IMMERSIVE,
+        KEY_KEEP_AWAKE,
+        KEY_UI_SCALE,
+        KEY_BRIGHTNESS,
+        KEY_FPS_LIMIT,
+        KEY_VSYNC,
+        KEY_FRAME_PACING,
+        KEY_FPS_OVERLAY,
+        KEY_PERFORMANCE_PRESET,
+        KEY_RENDERER,
+        KEY_MASTER_VOLUME,
+        KEY_AUDIO_BACKEND,
+    )
+
+    /** Keys that no longer exist, cleared so an upgrade leaves nothing behind. */
+    private val retiredKeys: List<String> get() = listOf(
+        "display.native_resolution",
+        "display.resolution_scale",
+        "display.aspect_ratio",
+        "display.orientation",
+    )
+
     fun resetToDefaults() {
+        (allKeys + retiredKeys).forEach { key ->
+            store.remove(key)
+            notifyChanged(key)
+        }
+    }
+
+    /**
+     * Restores only the display and graphics choices.
+     *
+     * This is a real action, not a promise: unlike the resolution rows
+     * themselves, which need a renderer, forgetting a preference is something
+     * the launcher can do today.
+     */
+    fun resetGraphics() {
         listOf(
-            KEY_NATIVE_RESOLUTION,
-            KEY_RESOLUTION_SCALE,
-            KEY_ASPECT_RATIO,
-            KEY_IMMERSIVE,
-            KEY_ORIENTATION,
-            KEY_KEEP_AWAKE,
-            KEY_UI_SCALE,
-            KEY_BRIGHTNESS,
-            KEY_FPS_LIMIT,
-            KEY_VSYNC,
-            KEY_FRAME_PACING,
-            KEY_FPS_OVERLAY,
-            KEY_PERFORMANCE_PRESET,
+            KEY_DISPLAY_RESOLUTION,
+            KEY_CUSTOM_WIDTH,
+            KEY_CUSTOM_HEIGHT,
+            KEY_RENDER_SCALE,
+            KEY_CUSTOM_SCALE,
+            KEY_ASPECT_MODE,
+            KEY_LETTERBOX,
+            KEY_FULLSCREEN_SCALING,
             KEY_RENDERER,
-            KEY_MASTER_VOLUME,
-            KEY_AUDIO_BACKEND,
         ).forEach { key ->
             store.remove(key)
             notifyChanged(key)
@@ -222,11 +348,19 @@ class SettingsRepository(
         const val BRIGHTNESS_FOLLOW_SYSTEM = -1
         const val VOLUME_UNSET = -1
 
-        const val KEY_NATIVE_RESOLUTION = "display.native_resolution"
-        const val KEY_RESOLUTION_SCALE = "display.resolution_scale"
-        const val KEY_ASPECT_RATIO = "display.aspect_ratio"
+        const val DEFAULT_CUSTOM_WIDTH = 1280
+        const val DEFAULT_CUSTOM_HEIGHT = 720
+        const val DEFAULT_CUSTOM_SCALE = 75
+
+        const val KEY_DISPLAY_RESOLUTION = "display.resolution"
+        const val KEY_CUSTOM_WIDTH = "display.custom_width"
+        const val KEY_CUSTOM_HEIGHT = "display.custom_height"
+        const val KEY_RENDER_SCALE = "display.render_scale"
+        const val KEY_CUSTOM_SCALE = "display.custom_scale_percent"
+        const val KEY_ASPECT_MODE = "display.aspect_mode"
+        const val KEY_LETTERBOX = "display.letterbox"
+        const val KEY_FULLSCREEN_SCALING = "display.fullscreen_scaling"
         const val KEY_IMMERSIVE = "display.immersive"
-        const val KEY_ORIENTATION = "display.orientation"
         const val KEY_KEEP_AWAKE = "display.keep_awake"
         const val KEY_UI_SCALE = "display.ui_scale"
         const val KEY_BRIGHTNESS = "display.brightness"

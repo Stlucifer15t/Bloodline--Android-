@@ -37,16 +37,35 @@ exactly what must be avoided — see §3.E.
 
 ### A. Display and screen
 
+Two different numbers are kept apart here, because conflating them is what
+makes a "resolution" slider meaningless on a phone:
+
+- **display resolution** is the size the game surface is *presented* at — what
+  the Windows desktop inside the container is told the screen is.
+- **internal render resolution** is the fraction of that size the game actually
+  renders, before the GPU scales it back up.
+
 | Setting | Values | Status | Effect |
 | --- | --- | --- | --- |
-| Native resolution | on / off | ⏳ PENDING | Render target for the game surface. Stored; applied by the graphics backend once it exists |
-| Resolution scaling | 100 / 75 / 50 % | ⏳ PENDING | Scales the game render target, not the launcher UI |
-| Aspect ratio | Preserve / Fit / Stretch | ⏳ PENDING | Game surface presentation mode |
+| Detected display | read-only | ✅ WORKS | Measured from the device: panel size and refresh rate, read through `Display#getRealMetrics`. Never estimated |
+| Display resolution | Native / 640 × 360 / 854 × 480 / 960 × 540 / 1280 × 720 / 1600 × 900 / Custom | ⏳ PENDING (value accepted) | Stored for the runtime. The screen shows the computed result against the measured display, so the choice can be judged |
+| Custom resolution | 320–3840 × 240–2160 | ⏳ PENDING (value accepted) | Shown when the resolution above is Custom. Clamped, made even, and reduced further if this screen cannot show it |
+| Internal render resolution | 100 / 90 / 85 / 80 / 75 / 70 / 60 / 50 % / Custom | ⏳ PENDING (value accepted) | The fraction of the presented size that is actually rendered |
+| Custom scaling | 25–100 % | ⏳ PENDING (value accepted) | Shown when the scaling above is Custom |
+| Resulting render size | read-only | ✅ WORKS (computed) | `presented → rendered`, worked out from the measured display. Says when a choice had to be reduced to fit |
+| Aspect ratio | Preserve / Fit to screen / Stretch to fill | ⏳ PENDING | How a frame whose shape differs from the display is fitted |
+| Letterbox / pillarbox | on / off | ⏳ PENDING | Bars instead of cropping when the frame cannot cover the screen |
+| Fullscreen scaling | on / off | ⏳ PENDING | Scale a smaller frame up to fill the display, rather than showing it 1:1 |
+| Reset graphics settings | action | ✅ WORKS | Forgets the display, scaling, fitting and renderer choices. Real work, so it is not greyed out |
 | Immersive / fullscreen | on / off | ✅ WORKS | Hides system bars on the launcher via `WindowCompat`; will apply to the game surface |
-| Screen orientation | Portrait / Landscape / Follow device | ✅ WORKS | `Activity.requestedOrientation` |
 | Keep screen awake | on / off | ✅ WORKS | `FLAG_KEEP_SCREEN_ON` while the launcher (later the game) is foreground |
-| UI scale | 85 / 100 / 115 % | ✅ WORKS | Scales launcher text and text-driven layout via a scaled `Configuration` |
+| UI scale | 85 / 100 / 115 % | ✅ WORKS | Scales launcher text and layout together via a scaled density (see §5) |
 | Screen brightness | Follow system / custom | ✅ WORKS | Window brightness while the launcher is foreground only (Android forbids changing system brightness) |
+
+**Orientation is no longer a setting.** It was removed, because it only ever
+controlled the launcher's own screens and was a single global preference that
+could contradict the one orientation rule that is *not* a preference: the game
+is a landscape Windows title and has to run landscape. See §4 below.
 
 ### B. FPS and performance
 
@@ -120,9 +139,9 @@ evidence.
 - Only ✅ settings are enabled. ⏳ settings are visible but dimmed, cannot be
   clicked, and say what they are waiting for. ❌ items are shown as unsupported
   rather than omitted, so the plan stays visible.
-- Applied immediately: immersive mode, orientation, keep-awake, window
-  brightness, the FPS overlay and master volume. UI scale recreates the
-  activity, because the scale is baked into the context.
+- Applied immediately: immersive mode, keep-awake, window brightness, the FPS
+  overlay and master volume. UI scale recreates the activity, because the scale
+  is baked into the context.
 - The FPS overlay counts real `Choreographer` frames, so it shows the refresh
   rate Android is actually delivering rather than a stored number.
 - Master volume drives the real Android `STREAM_MUSIC` volume, seeded from the
@@ -195,11 +214,39 @@ evidence.
 | No unexplained black screen | Import a folder with the game in it; the card must show the stage and a climbing entry count the whole time |
 | Installation metadata persists | Close and reopen: the status is shown instantly, and the caption says when it was verified |
 | No needless rescan | Reopen and watch: no progress bar appears on an ordinary start |
-| Settings persist | Change immersive / orientation / UI scale / volume, restart, confirm they held |
+| Settings persist | Change immersive / UI scale / volume / display resolution, restart, confirm they held |
+| Launcher rotates, game does not have to | Rotate the phone: the launcher follows. Orientation is no longer pinned by a setting |
 | FPS limits affect gameplay | ⏳ Cannot be checked until the runtime exists; the FPS overlay is checkable now |
-| Resolution scaling changes render resolution | ⏳ Same |
+| Resolution changes the rendered size | ⏳ Cannot be checked until the runtime exists. What *is* checkable now: the Detected display row shows this phone's real panel, and the Resulting render size row follows the resolution and scaling choices |
 | Renderer selection and safe fallback | ⏳ Same; the safe renderer is the default and the Vulkan path is marked experimental |
 | HUD functional | ❌ No HUD exists yet |
 | Crash reports after an unexpected exit | Force-stop the app from developer options, reopen: a report is written automatically |
 | Reports savable and shareable | *Save* writes the ZIP where you choose; *Share* opens Android's share sheet |
 | Normal shutdown produces no report | Back out of the app, reopen: the card still says *No reports yet* |
+
+---
+
+## 4. Orientation, in two phases
+
+`OrientationController` (pure Kotlin, unit tested) owns the rule;
+`OrientationApplier` is the only place it becomes an `ActivityInfo` constant.
+
+| Phase | Request | Why |
+| --- | --- | --- |
+| `LAUNCHER` | `FOLLOW_DEVICE` | The launcher and settings are usable either way up, so rotation is left to the device |
+| `GAMEPLAY` | `SENSOR_LANDSCAPE` | A requirement of the game, not a preference |
+
+`MainActivity.enterGameplay()` and `exitGameplay()` are the seam the future
+runtime host will call: entering forces landscape and remembers what the
+launcher was using, leaving puts it back. Nothing calls them yet, and nothing
+claims otherwise — the `screenOrientation` attribute has been removed from both
+activities in the manifest so neither is pinned any more.
+
+## 5. Interface scaling
+
+`UiScaleApplier` changes **only the density**. It used to change `fontScale` as
+well, which multiplied: `scaledDensity = density × fontScale`, so at 115 % text
+grew by 1.32× while every dp box around it grew by 1.15×, and labels overflowed
+their own rows. Leaving `fontScale` alone scales text and spacing together and
+keeps whatever font size the device is set to.
+

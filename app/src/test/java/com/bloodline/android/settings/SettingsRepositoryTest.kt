@@ -1,5 +1,8 @@
 package com.bloodline.android.settings
 
+import com.bloodline.android.display.AspectMode
+import com.bloodline.android.display.RenderResolution
+import com.bloodline.android.display.ResolutionScale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -19,11 +22,12 @@ class SettingsRepositoryTest {
         assertTrue(settings.immersiveMode)
         assertTrue(settings.keepScreenAwake)
         assertEquals(UiScale.NORMAL, settings.uiScale)
-        assertEquals(ScreenOrientation.PORTRAIT, settings.screenOrientation)
         assertEquals(SettingsRepository.BRIGHTNESS_FOLLOW_SYSTEM, settings.brightnessPercent)
         assertEquals(FpsLimit.UNCAPPED, settings.fpsLimit)
         assertFalse(settings.fpsOverlayEnabled)
-        assertEquals(ResolutionScale.FULL, settings.resolutionScale)
+        assertEquals(RenderResolution.NATIVE, settings.displayResolution)
+        assertEquals(ResolutionScale.FULL, settings.renderScale)
+        assertEquals(AspectMode.PRESERVE, settings.aspectMode)
         assertEquals(RendererChoice.WINE_D3D_VIRGL, settings.renderer)
         assertEquals(AudioBackend.AUTO, settings.audioBackend)
         assertEquals(-1, settings.masterVolume)
@@ -43,14 +47,16 @@ class SettingsRepositoryTest {
     @Test
     fun `enums survive a new repository over the same store`() {
         settings.fpsLimit = FpsLimit.FPS_30
-        settings.resolutionScale = ResolutionScale.HALF
-        settings.screenOrientation = ScreenOrientation.LANDSCAPE
+        settings.renderScale = ResolutionScale.HALF
+        settings.aspectMode = AspectMode.STRETCH
+        settings.displayResolution = RenderResolution.RES_960_540
 
         val reloaded = SettingsRepository(store)
 
         assertEquals(FpsLimit.FPS_30, reloaded.fpsLimit)
-        assertEquals(ResolutionScale.HALF, reloaded.resolutionScale)
-        assertEquals(ScreenOrientation.LANDSCAPE, reloaded.screenOrientation)
+        assertEquals(ResolutionScale.HALF, reloaded.renderScale)
+        assertEquals(AspectMode.STRETCH, reloaded.aspectMode)
+        assertEquals(RenderResolution.RES_960_540, reloaded.displayResolution)
     }
 
     @Test
@@ -136,11 +142,13 @@ class SettingsRepositoryTest {
         val snapshot = settings.snapshot()
 
         listOf(
-            "display.nativeResolution",
-            "display.resolutionScale",
-            "display.aspectRatio",
+            "display.resolution",
+            "display.customSize",
+            "display.renderScale",
+            "display.aspectMode",
+            "display.letterbox",
+            "display.fullscreenScaling",
             "display.immersive",
-            "display.orientation",
             "display.keepAwake",
             "display.uiScale",
             "display.brightness",
@@ -162,4 +170,86 @@ class SettingsRepositoryTest {
         assertFalse(settings.renderer.isExperimental)
         assertTrue(RendererChoice.PANVK_DXVK.isExperimental)
     }
+
+    // --------------------------------------------------------------- display
+
+    @Test
+    fun `a custom display size is clamped to a size a GPU can allocate`() {
+        settings.customDisplayWidth = 8
+        settings.customDisplayHeight = 8
+        assertEquals(RenderResolution.MIN_WIDTH, settings.customDisplayWidth)
+        assertEquals(RenderResolution.MIN_HEIGHT, settings.customDisplayHeight)
+
+        settings.customDisplayWidth = 99999
+        settings.customDisplayHeight = 99999
+        assertEquals(RenderResolution.MAX_WIDTH, settings.customDisplayWidth)
+        assertEquals(RenderResolution.MAX_HEIGHT, settings.customDisplayHeight)
+    }
+
+    @Test
+    fun `a stored custom size outside the range is clamped on read too`() {
+        store.putInt(SettingsRepository.KEY_CUSTOM_WIDTH, 1)
+        store.putInt(SettingsRepository.KEY_CUSTOM_HEIGHT, 99999)
+
+        assertEquals(RenderResolution.MIN_WIDTH, settings.customDisplayWidth)
+        assertEquals(RenderResolution.MAX_HEIGHT, settings.customDisplayHeight)
+    }
+
+    @Test
+    fun `the effective scale resolves the Custom case`() {
+        assertEquals(100, settings.effectiveScalePercent())
+
+        settings.renderScale = ResolutionScale.P75
+        assertEquals(75, settings.effectiveScalePercent())
+
+        settings.renderScale = ResolutionScale.CUSTOM
+        settings.customScalePercent = 55
+        assertEquals(55, settings.effectiveScalePercent())
+    }
+
+    @Test
+    fun `a custom scale is clamped to the range the renderer accepts`() {
+        settings.customScalePercent = 5
+        assertEquals(ResolutionScale.MIN_PERCENT, settings.customScalePercent)
+
+        settings.customScalePercent = 900
+        assertEquals(ResolutionScale.MAX_PERCENT, settings.customScalePercent)
+    }
+
+    @Test
+    fun `resetting graphics leaves the rest of the settings alone`() {
+        settings.displayResolution = RenderResolution.RES_854_480
+        settings.renderScale = ResolutionScale.HALF
+        settings.aspectMode = AspectMode.STRETCH
+        settings.letterboxEnabled = false
+        settings.fullscreenScaling = false
+        settings.renderer = RendererChoice.PANVK_DXVK
+        settings.immersiveMode = false
+        settings.fpsLimit = FpsLimit.FPS_30
+
+        settings.resetGraphics()
+
+        assertEquals(RenderResolution.NATIVE, settings.displayResolution)
+        assertEquals(ResolutionScale.FULL, settings.renderScale)
+        assertEquals(AspectMode.PRESERVE, settings.aspectMode)
+        assertTrue(settings.letterboxEnabled)
+        assertTrue(settings.fullscreenScaling)
+        assertFalse(settings.renderer.isExperimental)
+
+        // Untouched by a graphics reset.
+        assertFalse(settings.immersiveMode)
+        assertEquals(FpsLimit.FPS_30, settings.fpsLimit)
+    }
+
+    @Test
+    fun `reset clears the retired orientation key as well as the live ones`() {
+        store.putString("display.orientation", "LANDSCAPE")
+        store.putString("display.native_resolution", "false")
+
+        settings.resetToDefaults()
+
+        assertFalse(store.contains("display.orientation"))
+        assertFalse(store.contains("display.native_resolution"))
+    }
 }
+

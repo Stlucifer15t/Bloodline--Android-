@@ -1,7 +1,6 @@
 package com.bloodline.android.settings
 
 import android.app.Activity
-import android.content.pm.ActivityInfo
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -14,26 +13,20 @@ import androidx.core.view.WindowInsetsControllerCompat
  * resolution scaling, renderer choice, audio routing) are deliberately absent:
  * they cannot do anything yet, and pretending otherwise would be a lie in the
  * UI. They are stored by [SettingsRepository] and read by the runtime later.
+ *
+ * Orientation is also absent, on purpose. It used to be applied from a stored
+ * preference, but that preference only ever controlled the launcher's own
+ * screens and could contradict the one orientation rule that is not a
+ * preference — the game has to run landscape. Orientation now belongs to
+ * [OrientationController], which keeps the launcher phase and the gameplay
+ * phase apart.
  */
 object SettingsApplier {
 
-    fun apply(
-        activity: Activity,
-        settings: SettingsRepository,
-        includeOrientation: Boolean = true,
-    ) {
-        if (includeOrientation) applyOrientation(activity, settings)
+    fun apply(activity: Activity, settings: SettingsRepository) {
         applyImmersiveMode(activity, settings)
         applyKeepAwake(activity, settings)
         applyBrightness(activity, settings)
-    }
-
-    private fun applyOrientation(activity: Activity, settings: SettingsRepository) {
-        activity.requestedOrientation = when (settings.screenOrientation) {
-            ScreenOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            ScreenOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            ScreenOrientation.FOLLOW_DEVICE -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
     }
 
     private fun applyImmersiveMode(activity: Activity, settings: SettingsRepository) {

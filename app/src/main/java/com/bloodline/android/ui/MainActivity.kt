@@ -39,6 +39,10 @@ import com.bloodline.android.game.LocationKind
 import com.bloodline.android.game.ScanProgress
 import com.bloodline.android.game.ScanSource
 import com.bloodline.android.game.ScanStage
+import com.bloodline.android.display.DisplayCapabilities
+import com.bloodline.android.display.DisplayInfo
+import com.bloodline.android.display.ResolutionCalculator
+import com.bloodline.android.display.describe
 import com.bloodline.android.runtime.BlockReason
 import com.bloodline.android.runtime.ComponentIds
 import com.bloodline.android.runtime.IntegrationStatus
@@ -50,6 +54,8 @@ import com.bloodline.android.runtime.RuntimeComponent
 import com.bloodline.android.runtime.RuntimeProbe
 import com.bloodline.android.runtime.RuntimeRegistry
 import com.bloodline.android.settings.FpsMeter
+import com.bloodline.android.settings.OrientationApplier
+import com.bloodline.android.settings.OrientationController
 import com.bloodline.android.settings.SettingsApplier
 import com.bloodline.android.settings.SettingsProvider
 import com.bloodline.android.settings.SettingsRepository
@@ -78,6 +84,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var gameFolderStore: GameFolderStore
     private lateinit var settings: SettingsRepository
     private lateinit var installRepository: GameInstallRepository
+
+    /** Measured on this device, never assumed. Read once when the screen opens. */
+    private lateinit var display: DisplayInfo
+
+    /**
+     * Keeps the launcher's orientation and the game's apart.
+     *
+     * The launcher phase follows the device; the gameplay phase forces
+     * landscape because the game is a landscape Windows title. Nothing calls
+     * [enterGameplay] yet — the runtime host will, and this is the seam it will
+     * use rather than inventing its own.
+     */
+    private val orientation = OrientationController { request ->
+        OrientationApplier.apply(this, request)
+    }
 
     /** Background thread for one-off work that must never block the UI. */
     private val background: ExecutorService = Executors.newSingleThreadExecutor()
@@ -153,6 +174,7 @@ class MainActivity : AppCompatActivity() {
             appVersion = BuildConfig.VERSION_NAME,
         )
 
+        display = DisplayCapabilities.detect(this)
         diagnostics = DiagnosticsProvider.get(this, BuildConfig.VERSION_NAME)
         val unfinishedSession = diagnostics.startSession()
 
@@ -213,6 +235,7 @@ class MainActivity : AppCompatActivity() {
         // Re-applied here as well as in onCreate so a change made in the
         // settings screen shows up the moment the user comes back.
         SettingsApplier.apply(this, settings)
+        orientation.applyLauncher()
         updateFpsOverlay()
         diagnostics.noteForegrounded()
 
@@ -241,27 +264,93 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    // ------------------------------------------------------------ orientation
+
+    /**
+     * Hands the screen to the game.
+     *
+     * Landscape here is a requirement of the game, not a stored preference, so
+     * it overrides whatever the launcher was doing and nothing in Settings can
+     * weaken it. Nothing calls this yet: it is the documented seam the runtime
+     * host will use when there is a game to launch.
+     */
+    fun enterGameplay() = orientation.enterGameplay()
+
+    /**
+     * Takes the screen back after the game closes and restores whatever
+     * orientation the launcher was using.
+     */
+    fun exitGameplay() = orientation.exitGameplay()
+
     // ---------------------------------------------------------------- content
 
     private fun bindStaticContent() {
-        bindConfigRow(
-            binding.graphicsRenderer,
-            R.string.graphics_renderer,
-            R.string.graphics_renderer_value,
-        )
-        bindConfigRow(
-            binding.graphicsWrapper,
-            R.string.graphics_wrapper,
-            R.string.graphics_wrapper_value,
-        )
-        bindConfigRow(
-            binding.graphicsResolution,
-            R.string.graphics_resolution,
-            R.string.graphics_resolution_value,
-        )
-        bindConfigRow(binding.audioBackend, R.string.audio_backend, R.string.audio_backend_value)
-        bindConfigRow(binding.audioOutput, R.string.audio_output, R.string.audio_output_value)
+        bindDisplayPanel()
+        bindAudioPanel()
+        bindInstallPanel()
+        bindRuntimeCapabilityRow()
+        binding.footerVersion.text = getString(R.string.footer_version, BuildConfig.VERSION_NAME)
+    }
 
+    /**
+     * The display panel.
+     *
+     * The first row is measured from the device; the other two are computed
+     * from the stored resolution and scaling choices. The old version of this
+     * card printed a hard-coded "1280 × 720", which read like a setting and was
+     * nothing of the kind.
+     */
+    private fun bindDisplayPanel() {
+        val plan = ResolutionCalculator.plan(
+            display = display,
+            resolution = settings.displayResolution,
+            custom = settings.customDisplaySize(),
+            scalePercent = settings.effectiveScalePercent(),
+        )
+
+        bindConfigRow(
+            binding.displayPanel,
+            R.string.display_panel_label,
+            display.describe().ifEmpty { getString(R.string.display_unmeasured) },
+        )
+        bindConfigRow(
+            binding.displayGameResolution,
+            R.string.display_game_resolution_label,
+            "${plan.presented}",
+        )
+        bindConfigRow(
+            binding.displayRenderResolution,
+            R.string.display_render_resolution_label,
+            getString(R.string.value_scaled, plan.scalePercent, "${plan.rendered}"),
+        )
+
+        binding.displayNote.text = if (plan.reducedToFit) {
+            getString(R.string.display_reduced_suffix, "${plan.presented}") + "\n" +
+                getString(R.string.display_panel_note)
+        } else {
+            getString(R.string.display_panel_note)
+        }
+    }
+
+    /** Volume is real today; the backend is only stored for the runtime. */
+    private fun bindAudioPanel() {
+        bindConfigRow(
+            binding.audioVolume,
+            R.string.audio_volume_label,
+            if (settings.masterVolume >= 0) {
+                "${settings.masterVolume}%"
+            } else {
+                getString(R.string.audio_volume_unset)
+            },
+        )
+        bindConfigRow(
+            binding.audioBackend,
+            R.string.audio_backend_label,
+            settings.audioBackend.label,
+        )
+    }
+
+    private fun bindInstallPanel() {
         bindConfigRow(
             binding.installExpected,
             R.string.install_expected_label,
@@ -273,15 +362,15 @@ class MainActivity : AppCompatActivity() {
             R.string.install_search_path_label,
             resources.getQuantityString(R.plurals.install_search_path_value, rootCount, rootCount),
         )
+    }
 
+    private fun bindRuntimeCapabilityRow() {
         bindConfigRow(
             binding.runtimeCapability,
             R.string.runtime_capability_label,
             getString(R.string.runtime_capability_pending),
         )
         binding.runtimeCapability.root.setOnClickListener { showRuntimeProbeOutput() }
-
-        binding.footerVersion.text = getString(R.string.footer_version, BuildConfig.VERSION_NAME)
     }
 
     /** Components with the live, device measured status folded in. */

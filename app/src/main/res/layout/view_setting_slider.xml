@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A settings row with a continuous value, e.g. volume. -->
+<!--
+    A settings row with a continuous value, e.g. volume.
+
+    Same rule as the option row: the explanation gets the full width below the
+    controls rather than sharing a squeezed column beside them.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:minHeight="@dimen/row_min_height"
     android:orientation="vertical"
-    android:paddingTop="11dp"
-    android:paddingBottom="11dp">
+    android:paddingTop="@dimen/row_padding_vertical"
+    android:paddingBottom="@dimen/row_padding_vertical">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -18,6 +24,7 @@
             style="@style/Text.RowTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/row_column_gap"
             android:layout_weight="1" />
 
         <TextView
@@ -25,7 +32,8 @@
             style="@style/Text.Value"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:gravity="end" />
+            android:gravity="end"
+            android:maxWidth="@dimen/row_value_max_width" />
 
     </LinearLayout>
 
@@ -33,7 +41,7 @@
         android:id="@+id/settingSlider"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="@dimen/space_2"
         android:max="100" />
 
     <TextView
@@ -41,6 +49,6 @@
         style="@style/Text.RowDetail"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp" />
+        android:layout_marginTop="@dimen/space_2" />
 
 </LinearLayout>

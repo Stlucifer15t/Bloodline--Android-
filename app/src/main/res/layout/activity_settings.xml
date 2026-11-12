@@ -2,9 +2,9 @@
 <!--
     Settings screen.
 
-    The rows are added at runtime (see SettingsActivity) because each one needs
-    to know whether it can actually do anything yet; a static XML screen would
-    happily show switches that control nothing.
+    The section panels are added at runtime (see SettingsActivity) because each
+    row needs to know whether it can actually do anything yet; a static XML
+    screen would happily show switches that control nothing.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -20,61 +20,57 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:paddingTop="26dp"
-        android:paddingBottom="40dp">
+        android:paddingStart="@dimen/screen_gutter"
+        android:paddingEnd="@dimen/screen_gutter"
+        android:paddingTop="@dimen/screen_gutter_top"
+        android:paddingBottom="@dimen/screen_gutter_bottom">
 
         <TextView
-            style="@style/Text.Brand"
-            android:layout_width="wrap_content"
+            style="@style/Text.ScreenTitle"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/settings_title"
-            android:textSize="26sp" />
+            android:text="@string/settings_title" />
+
+        <View
+            android:layout_width="@dimen/header_rule_width"
+            android:layout_height="@dimen/header_rule_height"
+            android:layout_marginTop="@dimen/space_3"
+            android:background="@drawable/rule_accent" />
 
         <TextView
             style="@style/Text.Caption"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="@dimen/space_4"
             android:text="@string/settings_intro" />
 
-        <!-- Filled at runtime with one card per category. -->
+        <!-- Filled at runtime with one panel per category. -->
         <LinearLayout
             android:id="@+id/settingsSections"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_4"
             android:orientation="vertical" />
 
+        <!--
+            Heights are minimums, not fixed values. "RESET TO DEFAULTS" at a
+            large device font scale outgrew the old 46dp box and was clipped.
+        -->
         <Button
             android:id="@+id/resetButton"
+            style="@style/Widget.Bloodlines.OutlineButton"
             android:layout_width="match_parent"
-            android:layout_height="46dp"
-            android:layout_marginTop="20dp"
-            android:background="@drawable/btn_outline"
-            android:letterSpacing="0.18"
-            android:minHeight="0dp"
-            android:stateListAnimator="@null"
-            android:text="@string/settings_reset"
-            android:textAllCaps="true"
-            android:textColor="@color/button_text"
-            android:textSize="12.5sp"
-            android:textStyle="bold" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_7"
+            android:text="@string/settings_reset" />
 
         <Button
             android:id="@+id/backButton"
+            style="@style/Widget.Bloodlines.OutlineButton"
             android:layout_width="match_parent"
-            android:layout_height="46dp"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/btn_outline"
-            android:letterSpacing="0.18"
-            android:minHeight="0dp"
-            android:stateListAnimator="@null"
-            android:text="@string/settings_back"
-            android:textAllCaps="true"
-            android:textColor="@color/button_text"
-            android:textSize="12.5sp"
-            android:textStyle="bold" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_3"
+            android:text="@string/settings_back" />
 
     </LinearLayout>
 

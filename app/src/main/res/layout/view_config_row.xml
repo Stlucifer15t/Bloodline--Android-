@@ -1,26 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A label / value pair used by the graphics and audio configuration cards. -->
+<!--
+    A label / value pair used by the installation, display and audio panels.
+
+    Both columns are weighted (62 / 38) instead of the value being
+    wrap_content. That is deliberate: with wrap_content a long value — the
+    runtime capability summary, or "Vampire.exe + Vampire/ data folder" — took
+    as much room as it liked and squeezed its own label down to nothing. Both
+    sides now wrap inside a fixed share of the row.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
+    android:minHeight="@dimen/row_min_height_compact"
     android:orientation="horizontal"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp">
+    android:paddingTop="@dimen/row_padding_vertical_compact"
+    android:paddingBottom="@dimen/row_padding_vertical_compact"
+    android:weightSum="100">
 
     <TextView
         android:id="@+id/configLabel"
         style="@style/Text.RowTitle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="10dp"
-        android:layout_weight="1" />
+        android:layout_marginEnd="@dimen/row_column_gap"
+        android:layout_weight="62" />
 
     <TextView
         android:id="@+id/configValue"
         style="@style/Text.Value"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_weight="38"
         android:gravity="end" />
 
 </LinearLayout>
