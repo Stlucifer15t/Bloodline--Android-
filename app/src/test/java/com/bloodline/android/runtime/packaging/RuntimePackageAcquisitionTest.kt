@@ -202,6 +202,112 @@ class RuntimePackageAcquisitionTest {
         )
     }
 
+    // ------------------------------------------- what the caller is told
+
+    /**
+     * The regression, and the reason this file now tests the orchestrator
+     * rather than just the downloader.
+     *
+     * `install` worked out that the checksum did not match and said so. The
+     * caller threw that away, re-read an install marker that no failure ever
+     * writes, and reported "The package did not install (Missing)" — the same
+     * sentence for a refused socket, a truncated transfer, a bad checksum and a
+     * broken archive. That is what reached the phone.
+     */
+    @Test
+    fun `a package that fails reports the reason install worked out`() {
+        val (_, manager) = manager()
+        val acquisition = RuntimeAcquisition(manager, "arm64-v8a")
+        val pack = pack(sha256 = "0".repeat(64))
+
+        val outcome = acquisition.installAll(listOf(pack))
+
+        assertTrue(outcome is RuntimeAcquisition.Outcome.Failed)
+        val failed = outcome as RuntimeAcquisition.Outcome.Failed
+        assertEquals("Test Wine", failed.packageName)
+        assertTrue(
+            "the reason install gave must reach the user, got: ${failed.reason}",
+            failed.reason.contains("checksum"),
+        )
+    }
+
+    @Test
+    fun `a truncated download reports the length, not a generic failure`() {
+        val (_, manager) = manager()
+        val acquisition = RuntimeAcquisition(manager, "arm64-v8a")
+        val pack = pack(sha256 = null).copy(sizeBytes = body.size + 4096L)
+
+        val outcome = acquisition.installAll(listOf(pack))
+
+        assertTrue(outcome is RuntimeAcquisition.Outcome.Failed)
+        assertTrue(
+            (outcome as RuntimeAcquisition.Outcome.Failed).reason.contains("wrong length"),
+        )
+    }
+
+    @Test
+    fun `a device the packages were not built for is refused, naming the device`() {
+        // No network involved, so this is what a phone that cannot run Wine at
+        // all reports, and it has to say which ABI it saw.
+        val (_, manager) = manager()
+        val acquisition = RuntimeAcquisition(manager, "x86_64")
+
+        val outcome = acquisition.installAll(listOf(pack(sha256 = sha256Of(body))))
+
+        assertTrue(outcome is RuntimeAcquisition.Outcome.Failed)
+        val failed = outcome as RuntimeAcquisition.Outcome.Failed
+        assertTrue(failed.reason.contains("x86_64"))
+        assertTrue(failed.reason.contains("arm64-v8a"))
+    }
+
+    @Test
+    fun `an empty set has nothing to do rather than claiming success`() {
+        val (_, manager) = manager()
+
+        assertEquals(
+            RuntimeAcquisition.Outcome.NothingToDo,
+            RuntimeAcquisition(manager, "arm64-v8a").installAll(emptyList()),
+        )
+    }
+
+    @Test
+    fun `a second run skips what is already installed and says so`() {
+        // Otherwise a retry reports having downloaded 226 MB it did not touch.
+        val (_, manager) = manager()
+        val acquisition = RuntimeAcquisition(manager, "arm64-v8a")
+        val pack = pack(sha256 = sha256Of(body))
+
+        val first = acquisition.installAll(listOf(pack))
+        val second = acquisition.installAll(listOf(pack))
+
+        assertEquals(RuntimeAcquisition.Outcome.Installed(1, 0), first)
+        assertEquals(RuntimeAcquisition.Outcome.Installed(0, 1), second)
+        // Nothing was fetched the second time: the file was already there.
+        assertEquals(1, requestCount())
+    }
+
+    @Test
+    fun `progress counts the packages left to fetch, not every package`() {
+        val (_, manager) = manager()
+        val acquisition = RuntimeAcquisition(manager, "arm64-v8a")
+        val first = pack(sha256 = sha256Of(body))
+        val second = first.copy(id = "test-wow64", target = "packages/test-wow64")
+        val seen = mutableListOf<String>()
+
+        val outcome = acquisition.installAll(
+            listOf(first, second),
+            onProgress = { seen += it.toString() },
+        )
+
+        assertEquals(RuntimeAcquisition.Outcome.Installed(2, 0), outcome)
+        assertTrue(seen.isNotEmpty())
+        assertTrue(
+            "the first package must be reported as 1 of 2, got: ${seen.first()}",
+            seen.first().contains("1 of 2"),
+        )
+        assertTrue(seen.last().contains("2 of 2"))
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private fun manager(): Pair<RuntimePackageStore, RuntimePackageManager> {

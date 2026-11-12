@@ -3,6 +3,7 @@ package com.bloodline.android.ui
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -1195,7 +1196,25 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
     }
 
+    /**
+     * Whether the app may use the network at all.
+     *
+     * INTERNET is granted at install time, so this is never a prompt — it is a
+     * check that the manifest still declares what the downloader needs. The
+     * permission was absent when the downloader was written, and the symptom
+     * was a socket error with nothing pointing at the missing declaration.
+     * Naming it beats failing with "Permission denied".
+     */
+    private fun hasInternetPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, android.Manifest.permission.INTERNET) ==
+            PackageManager.PERMISSION_GRANTED
+
     private fun installRuntime() {
+        if (!hasInternetPermission()) {
+            showMessage(getString(R.string.runtime_install_no_permission))
+            return
+        }
+
         if (!hasNetworkConnection()) {
             showMessage(getString(R.string.runtime_install_offline))
             return
