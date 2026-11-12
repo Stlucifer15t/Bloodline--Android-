@@ -1,7 +1,5 @@
 package com.bloodline.android.runtime.packaging
 
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,7 +10,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.net.InetSocketAddress
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.ServerSocket
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -35,72 +35,32 @@ class RuntimePackageAcquisitionTest {
     @get:Rule
     val temporary = TemporaryFolder()
 
-    private lateinit var server: HttpServer
+    private lateinit var server: TestHttpServer
+
     private lateinit var body: ByteArray
-    private var port = 0
 
     /** How the server should answer the next request. */
     private var behaviour = Behaviour.FULL
 
-    /** Every `Range` header the server has been asked for. */
-    private val rangesRequested = mutableListOf<String>()
 
-    /** How many times the server has been asked for the package at all. */
-    private var requestCount = 0
-
-    private enum class Behaviour { FULL, HONOUR_RANGE, IGNORE_RANGE, UNSATISFIABLE }
 
     @Before
     fun startServer() {
         // A package that is genuinely a package: a small zip holding one file.
         body = zipOf("bin/wine" to ELF_STUB)
-
-        server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/") { exchange -> respond(exchange) }
-        server.start()
-        port = server.address.port
+        server = TestHttpServer(body) { behaviour }.start()
     }
 
     @After
-    fun stopServer() = server.stop(0)
+    fun stopServer() = server.stop()
 
-    private fun respond(exchange: HttpExchange) {
-        requestCount++
-        val range = exchange.requestHeaders.getFirst("Range")
-        if (range != null) rangesRequested += range
+    /** Every `Range` header the server has been asked for. */
+    private fun rangesRequested(): List<String> = server.rangesRequested()
 
-        when (behaviour) {
-            Behaviour.UNSATISFIABLE -> {
-                exchange.sendResponseHeaders(416, -1)
-                exchange.close()
-                return
-            }
+    /** How many times the server has been asked for the package at all. */
+    private fun requestCount(): Int = server.requestCount()
 
-            Behaviour.IGNORE_RANGE -> send(exchange, 200, body, 0)
-            Behaviour.FULL -> send(exchange, 200, body, 0)
-
-            Behaviour.HONOUR_RANGE -> {
-                val start = range
-                    ?.removePrefix("bytes=")
-                    ?.substringBefore('-')
-                    ?.toLongOrNull()
-                    ?: 0L
-                if (start <= 0L || start >= body.size) {
-                    send(exchange, 200, body, 0)
-                } else {
-                    exchange.responseHeaders.add("Content-Range", "bytes $start-${body.size - 1}/${body.size}")
-                    send(exchange, 206, body, start.toInt())
-                }
-            }
-        }
-    }
-
-    private fun send(exchange: HttpExchange, code: Int, bytes: ByteArray, from: Int) {
-        val slice = bytes.copyOfRange(from, bytes.size)
-        exchange.sendResponseHeaders(code, slice.size.toLong())
-        exchange.responseBody.use { it.write(slice) }
-        exchange.close()
-    }
+    private fun url(): String = "http://127.0.0.1:${server.port()}/test-wine.wcp"
 
     // ------------------------------------------------------------------ tests
 
@@ -172,8 +132,8 @@ class RuntimePackageAcquisitionTest {
 
         val state = manager.install(pack, "arm64-v8a")
 
-        assertEquals(state.toString(), 1, rangesRequested.size)
-        assertEquals("bytes=$half-", rangesRequested.first())
+        assertEquals(state.toString(), 1, rangesRequested().size)
+        assertEquals("bytes=$half-", rangesRequested().first())
         assertEquals(
             RuntimePackageManager.State.Installed("11.3", verified = true),
             state,
@@ -197,7 +157,7 @@ class RuntimePackageAcquisitionTest {
 
         val state = manager.install(pack, "arm64-v8a")
 
-        assertEquals(state.toString(), 2, requestCount)
+        assertEquals(state.toString(), 2, requestCount())
         assertEquals(
             RuntimePackageManager.State.Installed("11.3", verified = true),
             state,
@@ -235,7 +195,7 @@ class RuntimePackageAcquisitionTest {
 
         val state = manager.install(pack, "arm64-v8a")
 
-        assertEquals("the whole file is already there", 0, requestCount)
+        assertEquals("the whole file is already there", 0, requestCount())
         assertEquals(
             RuntimePackageManager.State.Installed("11.3", verified = true),
             state,
@@ -255,7 +215,7 @@ class RuntimePackageAcquisitionTest {
         name = "Test Wine",
         version = "11.3",
         abi = "arm64-v8a",
-        url = "http://127.0.0.1:$port/test-wine.wcp",
+        url = url(),
         sizeBytes = body.size.toLong(),
         sha256 = sha256,
         licence = Licence(
@@ -288,4 +248,137 @@ class RuntimePackageAcquisitionTest {
         /** Enough of an ELF header to be recognised as a program. */
         const val ELF_STUB = "\u007FELF"
     }
+}
+
+/**
+ * A deliberately small HTTP server, speaking just enough of the protocol.
+ *
+ * It exists because `com.sun.net.httpserver` is not on an Android unit-test
+ * classpath, and more importantly because the point of these tests is to
+ * control the answer: a 206, a 200 that ignores a range, or a 416. A real
+ * server library decides that for you and makes the interesting cases awkward
+ * to produce.
+ *
+ * One request per connection, no keep-alive, one request at a time — enough
+ * for a client that fetches one file, and simple enough that the server
+ * cannot be the reason a test fails.
+ */
+private enum class Behaviour { FULL, HONOUR_RANGE, IGNORE_RANGE, UNSATISFIABLE }
+
+private class TestHttpServer(
+    private val body: ByteArray,
+    private val behaviour: () -> Behaviour,
+) {
+
+    private lateinit var socket: ServerSocket
+    private lateinit var thread: Thread
+    private val ranges = mutableListOf<String>()
+    private var requests = 0
+
+    fun start(): TestHttpServer {
+        socket = ServerSocket(0, 50, java.net.InetAddress.getByName("127.0.0.1"))
+        thread = Thread({
+            while (!socket.isClosed) {
+                val connection = try {
+                    socket.accept()
+                } catch (error: Exception) {
+                    return@Thread
+                }
+                try {
+                    handle(connection)
+                } catch (error: Exception) {
+                    // A client that hung up mid-request is not a test failure.
+                } finally {
+                    connection.close()
+                }
+            }
+        }, "test-http").apply { isDaemon = true; start() }
+        return this
+    }
+
+    fun port(): Int = socket.localPort
+
+    fun stop() = socket.close()
+
+    @Synchronized
+    fun rangesRequested(): List<String> = ranges.toList()
+
+    @Synchronized
+    fun requestCount(): Int = requests
+
+    private fun handle(connection: java.net.Socket) {
+        val reader = BufferedReader(InputStreamReader(connection.getInputStream(), Charsets.US_ASCII))
+
+        // The request line, then headers until the blank line.
+        reader.readLine() ?: return
+        var range: String? = null
+        while (true) {
+            val line = reader.readLine() ?: break
+            if (line.isEmpty()) break
+            if (line.startsWith("Range:", ignoreCase = true)) {
+                range = line.substringAfter(':').trim()
+            }
+        }
+
+        synchronized(this) {
+            requests++
+            if (range != null) ranges += range
+        }
+
+        val start = range
+            ?.removePrefix("bytes=")
+            ?.substringBefore('-')
+            ?.trim()
+            ?.toLongOrNull()
+            ?: 0L
+
+        when (behaviour()) {
+            Behaviour.UNSATISFIABLE -> {
+                // What an asset replaced underneath a pin looks like: the
+                // bytes we already hold no longer correspond to what exists.
+                connection.getOutputStream().write(text(416, "Range Not Satisfiable", ByteArray(0)))
+            }
+
+            Behaviour.IGNORE_RANGE -> {
+                connection.getOutputStream().write(full(200, body))
+            }
+
+            Behaviour.FULL -> {
+                connection.getOutputStream().write(full(200, body))
+            }
+
+            Behaviour.HONOUR_RANGE -> {
+                if (start <= 0L || start >= body.size) {
+                    connection.getOutputStream().write(full(200, body))
+                } else {
+                    val from = start.toInt()
+                    val slice = body.copyOfRange(from, body.size)
+                    val head = ("HTTP/1.1 206 Partial Content\r\n" +
+                        "Content-Length: ${slice.size}\r\n" +
+                        "Content-Range: bytes $from-${body.size - 1}/${body.size}\r\n" +
+                        "Connection: close\r\n\r\n").toByteArray(Charsets.US_ASCII)
+                    connection.getOutputStream().apply {
+                        write(head + slice)
+                        flush()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun full(code: Int, bytes: ByteArray): ByteArray = text(code, "OK", bytes)
+
+    /**
+     * Header and body concatenated as bytes, never through a String.
+     *
+     * A package is binary, and round-tripping it through a String re-encodes
+     * every byte above 0x7F, which silently changes the file and makes the
+     * length wrong for a reason that has nothing to do with the code under
+     * test.
+     */
+    private fun text(code: Int, reason: String, bytes: ByteArray): ByteArray =
+        ("HTTP/1.1 $code $reason\r\n" +
+            "Content-Length: ${bytes.size}\r\n" +
+            "Content-Type: application/octet-stream\r\n" +
+            "Connection: close\r\n\r\n").toByteArray(Charsets.US_ASCII) + bytes
 }
