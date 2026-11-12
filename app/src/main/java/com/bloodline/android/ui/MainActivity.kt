@@ -3,6 +3,8 @@ package com.bloodline.android.ui
 import android.content.ActivityNotFoundException
 import android.graphics.Rect
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -166,10 +168,30 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      * governed by what is actually installed on this device rather than by
      * what the APK happens to contain.
      */
+    /**
+     * Everything the runtime has printed since the last launch attempt.
+     *
+     * RuntimeManager takes an onOutput, and this activity was not passing one,
+     * so it defaulted to a no-op and every line Wine wrote went nowhere. That
+     * costs nothing while Wine works and everything the moment it does not,
+     * which is precisely when the output is the only useful thing there is.
+     *
+     * StringBuffer for its lock: lines arrive on the background thread the
+     * launch runs on, and are read from whatever thread builds a report.
+     */
+    private val runtimeOutput = StringBuffer()
+
+    private fun recordRuntimeOutput(line: String) {
+        // Bounded rather than unbounded: a program that writes without stopping
+        // must not be able to fill the heap.
+        if (runtimeOutput.length >= RUNTIME_OUTPUT_LIMIT) return
+        runtimeOutput.append(line).append('\n')
+    }
+
     private val runtimeHost by lazy {
         RuntimeHost(
             host = this,
-            manager = RuntimeProviders.manager(this),
+            manager = RuntimeProviders.manager(this, onOutput = ::recordRuntimeOutput),
         )
     }
 
@@ -297,6 +319,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             }
         }
         binding.diagnosticsShareButton.setOnClickListener { shareLatestReport() }
+        binding.diagnosticsCopyButton.setOnClickListener { copyLatestReport() }
         binding.diagnosticsDeleteButton.setOnClickListener { deleteLatestReport() }
 
         // The previous run never said goodbye, so record what it left behind.
@@ -1154,6 +1177,9 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         // more on a phone. Calling it from a click handler would freeze the
         // launcher for as long as Wine takes to come up.
         binding.launchButton.isEnabled = false
+        // Each attempt gets a clean log: what Wine said last time is not
+        // evidence about what it does this time.
+        runtimeOutput.setLength(0)
         background.execute {
             val phase = runtimeHost.launch()
             runOnUiThread {
@@ -1333,6 +1359,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         val hasReport = report != null
         binding.diagnosticsSaveButton.isEnabled = hasReport
         binding.diagnosticsShareButton.isEnabled = hasReport
+        binding.diagnosticsCopyButton.isEnabled = hasReport
         binding.diagnosticsDeleteButton.isEnabled = hasReport
     }
 
@@ -1391,6 +1418,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         install = installFacts(),
         nativeProbe = nativeProbeResult?.output,
         runtimeProbe = runtimeProbeResult?.output,
+        runtimeOutput = runtimeOutput.toString(),
     )
 
     /**
@@ -1457,6 +1485,39 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         } catch (ignored: ActivityNotFoundException) {
             showMessage(getString(R.string.diagnostics_no_app))
         }
+    }
+
+    /**
+     * Puts the whole report on the clipboard as text.
+     *
+     * The report on disk is a ZIP, which is the right thing to write and the
+     * wrong thing to paste into a conversation. Pasting is the only way the
+     * person reading it can actually receive it, so the zip is flattened here
+     * rather than expecting them to have something that can open one.
+     */
+    private fun copyLatestReport() {
+        val report = diagnostics.latestReport() ?: run {
+            showMessage(getString(R.string.diagnostics_nothing_to_share))
+            return
+        }
+
+        val text = runCatching { diagnostics.readText(report) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+
+        if (text == null) {
+            showMessage(getString(R.string.diagnostics_nothing_to_share))
+            return
+        }
+
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        if (clipboard == null) {
+            showMessage(getString(R.string.diagnostics_nothing_to_share))
+            return
+        }
+
+        clipboard.setPrimaryClip(ClipData.newPlainText(report.name, text))
+        showMessage(getString(R.string.diagnostics_copied, formatSize(text.length.toLong())))
     }
 
     private fun saveReportTo(destination: Uri) {
@@ -1561,5 +1622,8 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
         /** Breathing room above the progress when the card is scrolled to. */
         const val SCROLL_MARGIN_PX = 48
+
+        /** Cap on how much of the runtime's output a report will carry. */
+        const val RUNTIME_OUTPUT_LIMIT = 256 * 1024
     }
 }

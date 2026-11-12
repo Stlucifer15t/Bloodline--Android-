@@ -11,6 +11,15 @@ data class ReportInputs(
     val install: Map<String, String> = emptyMap(),
     val nativeProbe: String? = null,
     val runtimeProbe: String? = null,
+    /**
+     * What the runtime printed while it ran, or null when it has not run since
+     * the app started.
+     *
+     * This is the section that matters most and was the one being thrown away:
+     * RuntimeManager takes an onOutput, the launcher was not passing one, and
+     * every line Wine wrote went nowhere.
+     */
+    val runtimeOutput: String? = null,
 )
 
 /**
@@ -81,6 +90,9 @@ class DiagnosticsManager(
 
     fun latestReport(): CrashReport? = archive.latest()
 
+    /** The whole of a report as text. See [ReportArchive.readText]. */
+    fun readText(report: CrashReport): String = archive.readText(report)
+
     fun reportCount(): Int = archive.count()
 
     fun delete(report: CrashReport) = archive.delete(report)
@@ -109,6 +121,8 @@ class DiagnosticsManager(
         ) + listOfNotNull(
             "native-probe.txt".takeIf { inputs.nativeProbe != null },
             "runtime-probe.txt".takeIf { inputs.runtimeProbe != null },
+            // Last of the sections but first in usefulness: what Wine said.
+            "wine.txt".takeIf { inputs.runtimeOutput?.isNotBlank() == true },
         ) + logs.map { "logs/${it.name}" }
 
         sections["summary.txt"] = ReportBuilder.summary(
@@ -129,6 +143,9 @@ class DiagnosticsManager(
         }
         inputs.runtimeProbe?.let {
             sections["runtime-probe.txt"] = "Runtime capability probe\n------------------------\n$it\n"
+        }
+        inputs.runtimeOutput?.takeIf { it.isNotBlank() }?.let {
+            sections["wine.txt"] = "Runtime output (Wine)\n---------------------\n$it\n"
         }
 
         return archive.write(

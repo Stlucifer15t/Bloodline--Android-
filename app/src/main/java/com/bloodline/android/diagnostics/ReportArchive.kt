@@ -79,6 +79,29 @@ class ReportArchive(
         return CrashReport(file, createdAt, classification)
     }
 
+    /**
+     * Every section of a report, as one piece of text.
+     *
+     * The zip is the right thing to write to disk, but it is the wrong thing to
+     * hand to a person who has to paste it into a conversation — which is the
+     * only way the person debugging this can see it. Each entry is labelled so
+     * the sections stay readable once they are flat.
+     */
+    fun readText(report: CrashReport): String {
+        val out = StringBuilder()
+        java.util.zip.ZipInputStream(report.file.inputStream().buffered()).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                if (entry.isDirectory) continue
+                out.append("===== ").append(entry.name).append(" =====\n")
+                out.append(zip.readBytes().toString(Charsets.UTF_8))
+                if (!out.endsWith("\n")) out.append('\n')
+                out.append('\n')
+            }
+        }
+        return out.toString()
+    }
+
     fun delete(report: CrashReport) {
         report.file.delete()
     }
