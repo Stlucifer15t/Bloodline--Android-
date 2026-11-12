@@ -30,7 +30,7 @@ class InstallationValidatorTest {
         subsystem: Int? = 3,
         size: Long = MIN_EXECUTABLE_BYTES + 1024,
         magic: String = "MZ",
-        signature: String = "PE\0\0",
+        signature: String = "PE\u0000\u0000",
     ): ByteArray {
         val peOffset = 0x80
         val bytes = ByteArray(size.coerceAtLeast(peOffset + 24L + 70L).toInt())
@@ -149,7 +149,7 @@ class InstallationValidatorTest {
 
     @Test
     fun `rejects a file whose PE signature is wrong`() {
-        val result = validate(pe(machine = 0x014C, signature = "PX\0\0"))
+        val result = validate(pe(machine = 0x014C, signature = "PX\u0000\u0000"))
 
         assertTrue((result as InstallValidation.Invalid).reason.contains("PE signature is missing"))
     }
