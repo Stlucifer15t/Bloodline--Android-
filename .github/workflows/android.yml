@@ -154,10 +154,17 @@ jobs:
 
       - name: Publish the upstream package report
         # The report is written to a file because Gradle hides test output, and
-        # posted as a comment because this is the one channel a maintainer can
-        # read without downloading an artifact. Manual dispatch only: it is the
-        # run that also fetches Wine, and a comment on every pull request would
-        # be noise.
+        # published because an artifact has to be downloaded to be read.
+        # Manual dispatch only: it is the run that also fetches Wine, and a
+        # comment on every pull request would be noise.
+        #
+        # It is attached to the commit, not to a pull request number. It used to
+        # post to PR 8, hardcoded, and kept reporting success long after PR 8
+        # was merged and the comment stopped appearing anywhere — a reporting
+        # channel that fails silently is worse than none, because the numbers
+        # still look like they are being published. A commit comment works for
+        # a pull request, a push and a merged branch alike, and it is readable
+        # through the API by anything that needs to check what a run found.
         if: github.event_name == 'workflow_dispatch' && always()
         continue-on-error: true
         env:
@@ -187,7 +194,19 @@ jobs:
               cat app/build/test-summary.md
             } >> /tmp/upstream-comment.md
           fi
-          gh pr comment 8 --body-file /tmp/upstream-comment.md
+          # On the run's own summary first, so it is there even if the API is
+          # unreachable.
+          cat /tmp/upstream-comment.md >> "$GITHUB_STEP_SUMMARY"
+
+          gh api -X POST \
+            "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -F body=@/tmp/upstream-comment.md
+
+          # And on the pull request too, when there is one to put it on.
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" \
+              --body-file /tmp/upstream-comment.md
+          fi
 
       - name: Check the manifest declares what the downloader needs
         # The runtime downloads Wine, so the app needs android.permission.INTERNET.
