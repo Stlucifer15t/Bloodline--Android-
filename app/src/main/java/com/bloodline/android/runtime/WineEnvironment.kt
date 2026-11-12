@@ -74,34 +74,36 @@ data class WineEnvironment(
      * each. The dynamic loader paths are set by [withRuntimePaths] rather than
      * here, because they depend on where the packages were unpacked.
      */
-    fun environment(): Map<String, String> = linkedMapOf(
-        // Which prefix, and what shape it is. win64 + WoW64 is how a 32-bit
-        // game is actually run: the prefix is 64-bit and WoW64 hosts the game.
-        "WINEPREFIX" to prefixDirectory,
-        "WINEARCH" to wineArch,
+    fun environment(): Map<String, String> = linkedMapOf<String, String>().apply {
+        // Which prefix, and what shape it is. win64 is how a 32-bit game is
+        // actually run here: the prefix is 64-bit and WoW64 hosts the game.
+        put("WINEPREFIX", prefixDirectory)
+        put("WINEARCH", wineArch)
 
-        // Which WoW64 implementation Wine should load for 32-bit guests.
-        // Without this, a 32-bit executable has nothing to run against.
-        "HODLL" to flavour.wow64DllName,
-
-        // Wine's own chatter is enormous and it all goes through the same log
-        // path as our diagnostics. Off by default; -all means "no debug at all".
-        "WINEDEBUG" to "-all",
-
-        // Keep Wine's temporary files inside the directory we own rather than
-        // letting them scatter into /tmp, which Android may not even permit.
-        "TMPDIR" to tempDirectory,
-        "TEMP" to tempDirectory,
-        "TMP" to tempDirectory,
+        // Which WoW64 implementation Wine should load for 32-bit guests. Only
+        // set when the flavour uses one: an x86_64 Wine gets its 32-bit support
+        // from Box64 translating the whole process, and setting HODLL there
+        // would be cargo cult rather than configuration.
+        if (flavour.usesWow64Layer) put("HODLL", flavour.wow64DllName)
 
         // The directory the game is read from, so anything that resolves a
         // relative path starts in the right place.
-        "WINE_GAME_DIRECTORY" to gameDirectory,
+        put("WINE_GAME_DIRECTORY", gameDirectory)
 
-        // Wine must not try to talk to an X server: the surface is provided by
-        // the runtime's own display component.
-        "WINE_DISABLE_FULLSCREEN_HACK" to "1",
-    )
+        // Wine's own chatter is enormous and it all goes through the same log
+        // path as our diagnostics. Off by default; -all means "no debug at all".
+        put("WINEDEBUG", "-all")
+
+        // Keep Wine's temporary files inside the directory we own rather than
+        // letting them scatter into /tmp, which Android may not even permit.
+        put("TMPDIR", tempDirectory)
+        put("TEMP", tempDirectory)
+        put("TMP", tempDirectory)
+
+        // Wine must not try to manage the whole screen itself: the surface is
+        // provided by the runtime's own display component.
+        put("WINE_DISABLE_FULLSCREEN_HACK", "1")
+    }
 
     /**
      * Adds the paths that depend on where packages were unpacked.
@@ -134,42 +136,75 @@ data class WineEnvironment(
 }
 
 /**
- * How the Windows environment is constructed.
+ * How the Windows environment is constructed, and therefore what the launch
+ * command looks like.
  *
- * [WOW64_BOX64] is the default: an x86_64 Wine with Box64 doing the instruction
- * translation and WOWBox64 providing the WoW64 layer for 32-bit guests. That is
- * the combination the Mali-focused runtimes ship, and it is the one this project
- * targets.
+ * The distinction that matters — ARM64EC versus x86_64 Wine — comes straight
+ * from reading the launcher of the Mali build that works. Its command
+ * construction has exactly two branches:
  *
- * [WOW64_FEX] swaps the translator for FEX-Emu. [WIN32_BOX86] is the route this
- * project originally assumed — a 32-bit prefix with Box86 — and is kept only
- * because it remains a valid way to run 32-bit code; no package in the catalog
- * provides it, so [isAvailable] is false until someone supplies one.
+ * * **ARM64EC Wine**: the command is `wine <exe>`. Wine's own code is ARM64
+ *   and runs natively; only the 32-bit guest needs an emulator, and that
+ *   emulator is a WoW64 DLL Wine loads, named by `HODLL`.
+ * * **x86_64 Wine**: the command is `box64 wine <exe>`, because the `wine`
+ *   binary itself is x86_64 and has to be translated from the start. `HODLL`
+ *   is not used — Box64 is already emulating the whole process, 32-bit guests
+ *   included.
+ *
+ * This project targets the ARM64EC branch. It needs no 32-bit userland, it
+ * puts one emulator between the game and the CPU instead of two, and it is the
+ * branch the 32-bit WoW64 layer is actually built for.
+ *
+ * [WIN32_BOX86] is the route this project originally assumed — a 32-bit prefix
+ * with Box86 — and is kept only because it remains a valid way to run 32-bit
+ * code. No package in the catalogue provides it, so [isAvailable] is false.
  */
 enum class WineFlavour(
     val wineArch: String,
+
+    /**
+     * The DLL Wine loads to host 32-bit guests, or empty when this flavour
+     * does not use a WoW64 layer.
+     *
+     * Empty is a meaningful state rather than a default: [X86_64_BOX64] runs
+     * no `HODLL` at all, and setting one there would be cargo cult.
+     */
     val wow64DllName: String,
+
+    /** True when the Wine binary itself needs translating. */
     val needsEmulator: Boolean,
+
     val title: String,
     val description: String,
 ) {
     WOW64_BOX64(
         wineArch = "win64",
         wow64DllName = "wowbox64.dll",
-        needsEmulator = true,
-        title = "Wine x86_64 + WOWBox64",
-        description = "A 64-bit Wine prefix with Box64 translating instructions and " +
-            "WOWBox64 hosting the game's 32-bit Windows DLLs. No 32-bit userland " +
-            "is needed. This is the combination the Mali-focused runtimes ship.",
+        needsEmulator = false,
+        title = "Wine ARM64EC + WOWBox64",
+        description = "An ARM64EC Wine with Box64 supplying the WoW64 layer for the " +
+            "game's 32-bit code. Wine itself runs natively, so nothing needs to " +
+            "translate it, and no 32-bit userland is involved. The default.",
     ),
 
     WOW64_FEX(
         wineArch = "win64",
         wow64DllName = "libwow64fex.dll",
         needsEmulator = false,
-        title = "Wine + FEX-Emu (WoW64)",
-        description = "A 64-bit Wine prefix with FEX-Emu providing both the instruction " +
-            "translation and the WoW64 layer. No separate emulator binary is needed.",
+        title = "Wine ARM64EC + FEX-Emu",
+        description = "An ARM64EC Wine with FEX-Emu supplying the WoW64 layer. The " +
+            "alternative when WOWBox64 cannot host the game.",
+    ),
+
+    X86_64_BOX64(
+        wineArch = "win64",
+        wow64DllName = "",
+        needsEmulator = true,
+        title = "Wine x86_64 + Box64",
+        description = "An x86_64 Wine with Box64 translating the whole Wine process. " +
+            "The conventional arrangement, offered as an alternative because some " +
+            "games behave differently under it. Sets no HODLL, because Box64 is " +
+            "already emulating everything including the 32-bit guest.",
     ),
 
     WIN32_BOX86(
@@ -180,9 +215,12 @@ enum class WineFlavour(
         description = "A 32-bit Wine prefix with Box86 translating instructions. Box86 " +
             "is itself a 32-bit program, so this route needs a 32-bit userland that " +
             "Android devices increasingly do not provide. Kept for completeness; no " +
-            "package in the catalog supplies it.",
+            "package in the catalogue supplies it.",
     ),
     ;
+
+    /** True when Wine is told to load a WoW64 layer for 32-bit guests. */
+    val usesWow64Layer: Boolean get() = wow64DllName.isNotEmpty()
 
     /** False for flavours with no package to back them. */
     val isAvailable: Boolean get() = this != WIN32_BOX86
@@ -190,5 +228,8 @@ enum class WineFlavour(
     companion object {
         /** The flavour to use when the user has not chosen one. */
         val DEFAULT: WineFlavour get() = WOW64_BOX64
+
+        /** The flavours worth offering, backed by a package. */
+        fun available(): List<WineFlavour> = entries.filter { it.isAvailable }
     }
 }

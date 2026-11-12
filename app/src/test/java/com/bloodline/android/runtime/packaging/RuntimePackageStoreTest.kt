@@ -23,7 +23,7 @@ class RuntimePackageStoreTest {
 
     private fun store() = RuntimePackageStore(temporary.newFolder("runtime"))
 
-    private val wine = RuntimePackageCatalog.WINE_10
+    private val wine = RuntimePackageCatalog.WINE_ARM64EC
 
     @Test
     fun `packages live under the directory the app owns, never beside the game`() {
@@ -45,7 +45,7 @@ class RuntimePackageStoreTest {
         store.markInstalled(wine, 1_700_000_000_000L)
 
         assertEquals(
-            RuntimePackageStore.InstallState.Installed("10.0", 1_700_000_000_000L),
+            RuntimePackageStore.InstallState.Installed("11.3", 1_700_000_000_000L),
             store.stateOf(wine),
         )
     }
@@ -57,10 +57,10 @@ class RuntimePackageStoreTest {
         val store = store()
         store.markInstalled(wine, 1L)
 
-        val upgraded = RuntimePackageCatalog.WINE_10.copy(version = "11.0")
+        val upgraded = RuntimePackageCatalog.WINE_ARM64EC.copy(version = "12.0")
 
         assertEquals(
-            RuntimePackageStore.InstallState.Stale(installed = "10.0", expected = "11.0"),
+            RuntimePackageStore.InstallState.Stale(installed = "11.3", expected = "12.0"),
             store.stateOf(upgraded),
         )
     }
@@ -101,7 +101,7 @@ class RuntimePackageStoreTest {
     fun `the Wine, emulator and WoW64 roots point at real packages`() {
         val store = store()
 
-        assertEquals(store.packageDir(RuntimePackageCatalog.WINE_10), store.wineRoot())
+        assertEquals(store.packageDir(RuntimePackageCatalog.WINE_ARM64EC), store.wineRoot())
         assertEquals(store.packageDir(RuntimePackageCatalog.BOX64_BIONIC), store.emulatorRoot())
         assertEquals(store.packageDir(RuntimePackageCatalog.WOWBOX64), store.wow64Root())
     }

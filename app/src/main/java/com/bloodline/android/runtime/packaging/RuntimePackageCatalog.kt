@@ -48,27 +48,67 @@ object RuntimePackageCatalog {
     )
 
     /**
-     * Wine 10, x86_64 build.
+     * Wine 11.3, ARM64EC build. **This is the Wine the runtime targets.**
      *
-     * Ref build (the plain Wine rather than Proton) because it is the smaller,
-     * more predictable base for a single non-Steam game. The prefix is 64-bit;
-     * 32-bit binaries are served by [WOWBOX64].
+     * ARM64EC rather than x86_64, and the distinction decides the whole launch
+     * shape. Reading the launcher in the Mali builds: with an ARM64EC Wine the
+     * command is just `wine <exe>`, because Wine's own ARM64 code runs natively
+     * and only the 32-bit guest needs an emulator — supplied through `HODLL`.
+     * With an x86_64 Wine the entire `wine` binary is x86_64, so the command
+     * becomes `box64 wine <exe>`.
+     *
+     * ARM64EC is the better fit for this project: it needs no 32-bit userland,
+     * it puts a single emulator between the game and the CPU rather than two,
+     * and it is the configuration the 32-bit-only path (`HODLL`) is built for.
+     *
+     * The `.wcp.xz` suffix is not decoration: upstream publishes the same
+     * package as plain `.wcp` too, and only the suffixed one is stated to be
+     * XZ-compressed. We take the format that is declared rather than guessing.
      */
-    val WINE_10 = RuntimePackage(
-        id = "wine-10-x86_64",
+    val WINE_ARM64EC = RuntimePackage(
+        id = "wine-11.3-arm64ec",
         type = PackageType.WINE,
-        name = "Wine 10 (x86_64)",
-        version = "10.0",
+        name = "Wine 11.3 (ARM64EC)",
+        version = "11.3",
         abi = "arm64-v8a",
-        url = "$CONTENTS/wine-v1/wine-10-x86_64-ref.wcp",
-        sizeBytes = 269L * 1024 * 1024,
+        url = "$NIGHTLIES/Proton/wine/wine-11.3-arm64ec.wcp.xz",
+        sizeBytes = 226_178_252L,
         licence = WINE_LICENCE,
-        target = "packages/wine-10-x86_64",
+        target = "packages/wine-11.3-arm64ec",
         required = true,
-        note = "64-bit prefix. The game's 32-bit code runs through WoW64, not a 32-bit prefix.",
+        note = "64-bit prefix, ARM64EC Wine. The game's 32-bit code runs through the " +
+            "WoW64 layer named by HODLL, not through a 32-bit prefix.",
     )
 
-    /** Box64, built against Android's Bionic libc. Runs the x86_64 emulation. */
+    /**
+     * Wine 11.3, x86_64 build: the alternative Wine.
+     *
+     * Not required. It is the conventional Winlator arrangement — `box64 wine`
+     * — and it is offered because some games behave differently under it. It
+     * needs [BOX64_BIONIC] and it does not use `HODLL`, because Box64 is
+     * already emulating the whole Wine process.
+     */
+    val WINE_X86_64 = RuntimePackage(
+        id = "wine-11.3-x86_64",
+        type = PackageType.WINE,
+        name = "Wine 11.3 (x86_64)",
+        version = "11.3",
+        abi = "arm64-v8a",
+        url = "$NIGHTLIES/Proton/wine/wine-11.3-x86_64.wcp",
+        sizeBytes = 207_779_756L,
+        licence = WINE_LICENCE,
+        target = "packages/wine-11.3-x86_64",
+        required = false,
+        note = "Needs Box64 in front of it. Offered as an alternative to the ARM64EC build.",
+    )
+
+    /**
+     * Box64 as a standalone emulator, built against Android's Bionic libc.
+     *
+     * Not required by the ARM64EC path: there, Box64 arrives as [WOWBOX64], a
+     * WoW64 DLL rather than a binary this app executes. This package is only
+     * needed to run the x86_64 Wine build, which is itself the alternative.
+     */
     val BOX64_BIONIC = RuntimePackage(
         id = "box64-bionic",
         type = PackageType.CPU_EMULATOR,
@@ -76,11 +116,12 @@ object RuntimePackageCatalog {
         version = "0.4.5",
         abi = "arm64-v8a",
         url = "$NIGHTLIES/nightly-latest/Box64-0.4.5-79d07c69e-Bionic.zip",
-        sizeBytes = 5L * 1024 * 1024,
+        sizeBytes = 5_103_225L,
         licence = BOX64_LICENCE,
         target = "packages/box64",
-        required = true,
-        note = "Built for Android's Bionic libc, so no glibc root filesystem is needed.",
+        required = false,
+        note = "Built for Android's Bionic libc, so no glibc root filesystem is needed. " +
+            "Only needed to run the x86_64 Wine build.",
     )
 
     /**
@@ -91,14 +132,15 @@ object RuntimePackageCatalog {
         id = "wowbox64",
         type = PackageType.WOW64,
         name = "WOWBox64",
-        version = "0.4.5",
+        version = "0.4.4",
         abi = "arm64-v8a",
-        url = "$NIGHTLIES/nightly-latest/WOWBox64-0.4.5-981b49a09.zip",
-        sizeBytes = 2L * 1024 * 1024,
+        url = "$NIGHTLIES/Wowbox64/WOWBox64-0.4.4.wcp",
+        sizeBytes = 1_029_612L,
         licence = BOX64_LICENCE,
         target = "packages/wowbox64",
         required = true,
-        note = "Extracted into the prefix's windows/system32, which is where WoW64 looks for it.",
+        note = "Copied into the prefix's windows/system32, which is where WoW64 " +
+            "looks for the DLL named by HODLL.",
     )
 
     /**
@@ -115,7 +157,7 @@ object RuntimePackageCatalog {
         version = "2611",
         abi = "arm64-v8a",
         url = "$NIGHTLIES/nightly-latest/FEX-2611+45-Nightly-ab135df09.zip",
-        sizeBytes = 2L * 1024 * 1024,
+        sizeBytes = 2_078_400L,
         licence = FEX_LICENCE,
         target = "packages/fex",
         required = false,
@@ -129,10 +171,11 @@ object RuntimePackageCatalog {
      * out immediately rather than after downloading everything else.
      */
     val ALL: List<RuntimePackage> = listOf(
-        WINE_10,
-        BOX64_BIONIC,
+        WINE_ARM64EC,
         WOWBOX64,
         FEX,
+        WINE_X86_64,
+        BOX64_BIONIC,
     )
 
     /** Only the packages the game cannot start without. */
@@ -142,6 +185,17 @@ object RuntimePackageCatalog {
 
     /** Total download for [packages], for the confirmation the UI shows first. */
     fun totalBytes(packages: List<RuntimePackage>): Long = packages.sumOf { it.sizeBytes }
+
+    /**
+     * The packages needed to run the game through [WINE_ARM64EC].
+     *
+     * Two packages: a Wine and a WoW64 layer. That is genuinely all the
+     * 32-bit path needs, which is the point of choosing WoW64 over Box86 —
+     * the latter would also need a 32-bit userland that no package supplies.
+     */
+    fun requiredFor(wine: RuntimePackage): List<RuntimePackage> =
+        if (wine == WINE_X86_64) listOf(wine, BOX64_BIONIC, WOWBOX64)
+        else listOf(wine, WOWBOX64)
 
     /** Every distinct licence, so NOTICE can be generated rather than hand-kept. */
     fun licences(): List<Licence> = ALL.map { it.licence }.distinctBy { it.spdx }

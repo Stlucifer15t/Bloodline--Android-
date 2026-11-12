@@ -20,8 +20,8 @@ compileSdk = "36"
 # carry the same versionCode are the same build as far as the installer is
 # concerned, so a new APK will not be installed over the old one. Bump it in
 # the same commit as the change, not afterwards.
-versionCode = "2"
-versionName = "0.2.0"
+versionCode = "3"
+versionName = "0.3.0"
 
 # Libraries. Kept deliberately small: AppCompat for a custom (non-Material)
 # dark theme, androidx.core for tinting/compat helpers, JUnit for unit tests.
@@ -30,11 +30,21 @@ coreKtx = "1.15.0"
 documentfile = "1.0.1"
 junit = "4.13.2"
 
+# Archive decompression. Both are needed, not one: the upstream runtime
+# packages use a private ".wcp" extension over a tar archive compressed with
+# either XZ or Zstandard, and trying one and falling back is what the
+# upstream installer itself does. xz is pure Java and in the public domain;
+# zstd-jni is the reference Zstandard binding (BSD-2).
+xz = "1.9"
+zstdJni = "1.5.6-3"
+
 [libraries]
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
+zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -74,6 +74,16 @@ class WineEnvironmentTest {
     fun `each flavour names the WoW64 layer it uses`() {
         assertEquals("wowbox64.dll", WineFlavour.WOW64_BOX64.wow64DllName)
         assertEquals("libwow64fex.dll", WineFlavour.WOW64_FEX.wow64DllName)
+        assertEquals("", WineFlavour.X86_64_BOX64.wow64DllName)
+    }
+
+    @Test
+    fun `every available flavour hosts the game in a 64-bit prefix`() {
+        // No available route builds a 32-bit prefix. That is the correction:
+        // a 32-bit executable does not require a 32-bit prefix.
+        WineFlavour.available().forEach { flavour ->
+            assertEquals("${flavour.name} builds a 32-bit prefix.", "win64", flavour.wineArch)
+        }
     }
 
     @Test
@@ -90,10 +100,31 @@ class WineEnvironmentTest {
     }
 
     @Test
-    fun `Box64 is chained in front of Wine when it is needed`() {
+    fun `an ARM64EC Wine needs no emulator in front of it`() {
+        // The whole reason ARM64EC was chosen: Wine's own code is ARM64 and
+        // runs natively. Only the 32-bit guest is translated, by the WoW64
+        // layer named in HODLL.
         val environment = environment()
 
+        assertEquals(false, environment.flavour.needsEmulator)
+        assertEquals(
+            listOf("/data/data/com.bloodline.android/runtime/wine/bin/wine", "D:\\Vampire.exe"),
+            environment.launchCommand(
+                emulatorBinary = "/data/data/com.bloodline.android/runtime/box64/box64",
+            ),
+        )
+    }
+
+    @Test
+    fun `an x86_64 Wine is run through Box64, and sets no HODLL`() {
+        // With an x86_64 Wine the wine binary itself is x86_64, so Box64 goes
+        // in front. HODLL would be meaningless here: Box64 is already
+        // emulating the entire process, 32-bit guests included.
+        val environment = environment(flavour = WineFlavour.X86_64_BOX64)
+
         assertTrue(environment.flavour.needsEmulator)
+        assertEquals("win64", environment.environment()["WINEARCH"])
+        assertEquals(null, environment.environment()["HODLL"])
         assertEquals(
             listOf(
                 "/data/data/com.bloodline.android/runtime/box64/box64",
@@ -104,6 +135,18 @@ class WineEnvironmentTest {
                 emulatorBinary = "/data/data/com.bloodline.android/runtime/box64/box64",
             ),
         )
+    }
+
+    @Test
+    fun `only the flavours that use a WoW64 layer set HODLL`() {
+        WineFlavour.entries.forEach { flavour ->
+            val variables = environment(flavour = flavour).environment()
+            assertEquals(
+                "${flavour.name} should set HODLL exactly when it uses a WoW64 layer.",
+                flavour.usesWow64Layer,
+                variables.containsKey("HODLL"),
+            )
+        }
     }
 
     @Test

@@ -167,5 +167,10 @@ dependencies {
     // Navigating the game folder the user picks with the Storage Access Framework.
     implementation(libs.androidx.documentfile)
 
+    // Unpacking the runtime packages downloaded at first run, which arrive as
+    // tar.xz or tar.zst archives behind a private ".wcp" extension.
+    implementation(libs.xz)
+    implementation(libs.zstd.jni)
+
     testImplementation(libs.junit)
 }

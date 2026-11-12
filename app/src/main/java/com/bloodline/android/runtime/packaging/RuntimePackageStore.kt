@@ -21,7 +21,7 @@ class RuntimePackageStore(
 ) {
 
     /** The Wine build's own root, once installed. */
-    fun wineRoot(): File = packageDir(RuntimePackageCatalog.WINE_10)
+    fun wineRoot(): File = packageDir(RuntimePackageCatalog.WINE_ARM64EC)
 
     /** The emulator's root. */
     fun emulatorRoot(): File = packageDir(RuntimePackageCatalog.BOX64_BIONIC)

@@ -1,7 +1,11 @@
 package com.bloodline.android.runtime.packaging
 
+import com.github.luben.zstd.ZstdInputStream
+import org.tukaani.xz.XZInputStream
+import java.io.BufferedInputStream
 import java.io.File
 import java.io.InputStream
+import java.util.zip.GZIPInputStream
 import java.util.zip.ZipInputStream
 
 /**
@@ -16,12 +20,20 @@ import java.util.zip.ZipInputStream
  *    the whole extraction fails, because a half-written runtime is worse than
  *    none.
  * 2. **The format is detected from the bytes, not the extension.** Upstream
- *    packages use a private `.wcp` extension over an ordinary archive, so the
- *    name tells us nothing.
+ *    packages use a private `.wcp` extension for what is, in fact, a tar
+ *    archive compressed with either XZ or Zstandard — the filename carries no
+ *    information, and upstream applies both compressions.
+ *
+ * The two decompressors are the only third-party code here. Both are needed:
+ * inspecting the upstream installer showed it trying XZ first and falling back
+ * to Zstandard, so a build that handles only one of them silently fails on
+ * some packages. `org.tukaani:xz` is pure Java and public domain;
+ * `zstd-jni` is the reference Zstandard binding. Neither is bundled into the
+ * APK as native code of ours — they are ordinary dependencies.
  */
 class ArchiveExtractor {
 
-    /** What went wrong, in words meant for the user. */
+    /** What happened. */
     sealed interface Result {
         data class Success(val fileCount: Int, val format: ArchiveFormat) : Result
         data class Failure(val reason: String) : Result
@@ -51,22 +63,17 @@ class ArchiveExtractor {
             target.mkdirs()
             val count = when (format) {
                 ArchiveFormat.ZIP -> extractZip(archive, target, onProgress)
-                else -> throw UnsupportedFormatException(format)
+                else -> extractTar(archive, format, target, onProgress)
             }
             Result.Success(count, format)
         } catch (error: SecurityException) {
+            target.deleteRecursively()
             Result.Failure("The archive contained an unsafe path and was refused: ${error.message}")
-        } catch (error: UnsupportedFormatException) {
-            Result.Failure(
-                "${error.format.title} archives are not supported yet. Only ZIP can be " +
-                    "unpacked with the decoders bundled in this build.",
-            )
         } catch (error: Exception) {
-            Result.Failure("Unpacking failed: ${error.message}")
+            target.deleteRecursively()
+            Result.Failure("Unpacking ${archive.name} failed: ${error.message}")
         }
     }
-
-    private class UnsupportedFormatException(val format: ArchiveFormat) : Exception(format.title)
 
     /** Reads the first bytes and identifies the container. */
     fun detectFormat(archive: File): ArchiveFormat {
@@ -84,11 +91,13 @@ class ArchiveExtractor {
     }
 
     private fun extractZip(archive: File, target: File, onProgress: (Int) -> Unit): Int {
+        val root = target.canonicalFile
+        val resolver = PathResolver(root)
         var count = 0
         ZipInputStream(archive.inputStream().buffered()).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
-                val destination = safeDestination(target, entry.name)
+                val destination = resolver.resolve(entry.name)
                     ?: throw SecurityException(entry.name)
 
                 if (entry.isDirectory) {
@@ -105,38 +114,60 @@ class ArchiveExtractor {
         return count
     }
 
-    /**
-     * Resolves an entry name inside [target], or null when it escapes.
-     *
-     * Both checks matter: the canonical-path comparison catches `..` traversal,
-     * and rejecting absolute names stops an entry from addressing `/system`
-     * directly.
-     */
-    internal fun safeDestination(target: File, entryName: String): File? {
-        if (entryName.isBlank()) return null
-
-        // Reject absolute names outright. `File(parent, child)` would otherwise
-        // quietly treat "/system/bin/sh" as relative to the target, which is
-        // safe — but relying on that is one refactor away from being unsafe,
-        // and a hostile archive should be refused on its face.
-        if (entryName.startsWith("/") || entryName.startsWith("\\")) return null
-
-        val root = target.canonicalFile
-        val destination = File(root, entryName).canonicalFile
-
-        return if (destination.path == root.path || destination.path.startsWith(root.path + File.separator)) {
-            destination
-        } else {
-            null
+    private fun extractTar(
+        archive: File,
+        format: ArchiveFormat,
+        target: File,
+        onProgress: (Int) -> Unit,
+    ): Int {
+        val decompressed: InputStream = when (format) {
+            ArchiveFormat.TAR -> archive.inputStream()
+            ArchiveFormat.TAR_XZ -> XZInputStream(archive.inputStream())
+            ArchiveFormat.TAR_ZST -> ZstdInputStream(archive.inputStream())
+            ArchiveFormat.TAR_GZ -> GZIPInputStream(archive.inputStream())
+            else -> throw IllegalArgumentException("${format.title} is not a tar archive")
+        }
+        return BufferedInputStream(decompressed, BUFFER).use {
+            TarExtractor().extract(it, target, onProgress)
         }
     }
 
     private fun copy(from: InputStream, to: java.io.OutputStream) {
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val buffer = ByteArray(BUFFER)
         while (true) {
             val read = from.read(buffer)
             if (read < 0) break
             to.write(buffer, 0, read)
+        }
+    }
+
+    private companion object {
+        const val BUFFER = 64 * 1024
+    }
+}
+
+/**
+ * Maps an archive entry name onto a path inside a root directory, refusing
+ * anything that escapes.
+ *
+ * Shared by the ZIP and tar paths so the two cannot drift apart: a traversal
+ * check implemented twice is a traversal check that gets fixed in one place.
+ */
+internal class PathResolver(private val root: File) {
+
+    fun resolve(entryName: String): File? {
+        val cleaned = entryName.trim().trimEnd('/')
+        if (cleaned.isEmpty()) return null
+        if (cleaned.startsWith("/") || cleaned.startsWith("\\")) return null
+        if (cleaned.split('/', '\\').any { it == ".." }) return null
+
+        val destination = File(root, cleaned).canonicalFile
+        return if (destination.path == root.path ||
+            destination.path.startsWith(root.path + File.separator)
+        ) {
+            destination
+        } else {
+            null
         }
     }
 }

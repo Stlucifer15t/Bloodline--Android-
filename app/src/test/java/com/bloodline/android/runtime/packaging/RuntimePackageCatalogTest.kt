@@ -88,11 +88,33 @@ class RuntimePackageCatalogTest {
     }
 
     @Test
-    fun `Wine and an emulator are both required`() {
-        val types = RuntimePackageCatalog.REQUIRED.map { it.type }
+    fun `the required set is a Wine and a WoW64 layer, and nothing else`() {
+        // The payoff of choosing WoW64 over Box86: two packages. A Box86 route
+        // would additionally need a 32-bit userland that no package supplies.
+        assertEquals(
+            listOf(PackageType.WINE, PackageType.WOW64),
+            RuntimePackageCatalog.REQUIRED.map { it.type },
+        )
+    }
 
-        assertTrue(types.contains(PackageType.WINE))
-        assertTrue(types.contains(PackageType.CPU_EMULATOR))
+    @Test
+    fun `the required set names the ARM64EC Wine`() {
+        // ARM64EC is the wine whose whole launch shape this project is built
+        // around: no emulator binary in front of Wine, and HODLL supplying the
+        // 32-bit layer.
+        assertEquals(RuntimePackageCatalog.WINE_ARM64EC, RuntimePackageCatalog.REQUIRED.first())
+    }
+
+    @Test
+    fun `the x86_64 Wine pulls Box64 in with it`() {
+        // The conventional arrangement needs a standalone emulator because the
+        // wine binary itself is x86_64. It is an alternative, not the default.
+        val required = RuntimePackageCatalog.requiredFor(RuntimePackageCatalog.WINE_X86_64)
+
+        assertTrue(required.contains(RuntimePackageCatalog.BOX64_BIONIC))
+        assertTrue(required.contains(RuntimePackageCatalog.WOWBOX64))
+        assertTrue(RuntimePackageCatalog.requiredFor(RuntimePackageCatalog.WINE_ARM64EC)
+            .none { it.type == PackageType.CPU_EMULATOR })
     }
 
     @Test
