@@ -14,8 +14,14 @@ targetSdk = "36"
 compileSdk = "36"
 
 # Application version.
-versionCode = "1"
-versionName = "0.1.0"
+#
+# versionCode MUST increase with every merged change. It is the only thing
+# Android looks at when deciding whether an APK is an update: two builds that
+# carry the same versionCode are the same build as far as the installer is
+# concerned, so a new APK will not be installed over the old one. Bump it in
+# the same commit as the change, not afterwards.
+versionCode = "2"
+versionName = "0.2.0"
 
 # Libraries. Kept deliberately small: AppCompat for a custom (non-Material)
 # dark theme, androidx.core for tinting/compat helpers, JUnit for unit tests.

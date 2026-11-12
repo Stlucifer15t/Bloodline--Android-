@@ -573,7 +573,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_8"
             android:gravity="center"
-            tools:text="Milestone 1 · foundation build 0.1.0" />
+            tools:text="Milestone 2 · runtime foundation build 0.2.0" />
 
         <TextView
             style="@style/Text.Caption"

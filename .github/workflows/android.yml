@@ -67,6 +67,31 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Check the version code was bumped
+        # Android treats two APKs with the same versionCode as the same build,
+        # so a change that does not bump it cannot be installed over the
+        # previous APK. This fails the build rather than shipping an APK the
+        # user has to uninstall first.
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "${{ github.event.pull_request.base.ref || 'main' }}" --depth=1
+          code() {
+            git show "$1:gradle/libs.versions.toml" \
+              | grep -E '^versionCode = ' | head -n1 | grep -oE '[0-9]+'
+          }
+          HEAD_CODE="$(code HEAD)"
+          BASE_CODE="$(code FETCH_HEAD)"
+          echo "versionCode: base=$BASE_CODE head=$HEAD_CODE"
+          if [ -z "$HEAD_CODE" ] || [ -z "$BASE_CODE" ]; then
+            echo "::error::Could not read versionCode from gradle/libs.versions.toml"
+            exit 1
+          fi
+          if [ "$HEAD_CODE" -le "$BASE_CODE" ]; then
+            echo "::error::versionCode is $HEAD_CODE but ${{ github.event.pull_request.base.ref || 'main' }} is already at $BASE_CODE."
+            echo "::error::Bump versionCode (and versionName) in gradle/libs.versions.toml so this APK installs as an update."
+            exit 1
+          fi
+
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 

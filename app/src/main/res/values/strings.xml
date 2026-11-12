@@ -46,6 +46,10 @@
     <string name="runtime_capability_pending">Measuring… tap to refresh later</string>
     <string name="runtime_capability_failed">Probe failed (exit %1$d)</string>
     <string name="runtime_capability_hint">ptrace, seccomp, executing from memory and 32-bit support, measured on this device</string>
+    <string name="runtime_selection_prefix">This device would use\u0020</string>
+    <string name="runtime_selection_fallback">\u0020(fallback)</string>
+    <string name="runtime_selection_translator">Translator: %1$s.</string>
+    <string name="runtime_selection_audio">Audio: %1$s.</string>
     <string name="runtime_overall_detail">The Windows compatibility layer is not integrated yet. The launcher ships as a UI foundation only.</string>
 
     <!-- Status labels -->
@@ -102,6 +106,7 @@
     <string name="launch_locked_no_install">Import your game files to enable launch</string>
     <string name="launch_locked_incomplete">Game data folder missing — launch stays disabled</string>
     <string name="launch_locked_no_runtime">The compatibility runtime is not integrated yet — launch stays disabled</string>
+    <string name="launch_locked_not_validated">Vampire.exe has not been verified as a 32-bit Windows executable yet — launch stays disabled</string>
 
     <plurals name="install_search_path_value">
         <item quantity="one">%1$d location</item>
@@ -124,7 +129,7 @@
 
 
     <!-- Footer -->
-    <string name="footer_version">Milestone 1 · foundation build %1$s</string>
+    <string name="footer_version">Milestone 2 · runtime foundation build %1$s</string>
     <string name="footer_disclaimer">Fan-made compatibility launcher. Vampire: The Masquerade – Bloodlines is a trademark of Paradox Interactive AB. Game files are not included and must be supplied by you.</string>
     <!-- ============================== Settings ============================= -->
     <string name="settings_title">Settings</string>

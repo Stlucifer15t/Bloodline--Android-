@@ -1,6 +1,9 @@
 package com.bloodline.android.storage
 
 import android.content.Context
+import android.net.Uri
+import com.bloodline.android.game.GameLocation
+import com.bloodline.android.game.LocationKind
 import com.bloodline.android.game.StorageFolder
 import java.io.File
 
@@ -56,6 +59,23 @@ object StorageLocations {
 
         return roots.values.toList()
     }
+
+    /**
+     * Reopens a remembered [GameLocation] so its contents can be read again.
+     *
+     * Needed because an install is stored as a location, not as a folder: the
+     * scan that found it is long finished by the time anything wants to look
+     * inside it. Returns null when the location can no longer be reached — a
+     * revoked URI or an unmounted card — which the caller reports rather than
+     * treating as an empty folder.
+     */
+    fun openFolder(context: Context, location: GameLocation): StorageFolder? = runCatching {
+        when (location.kind) {
+            LocationKind.APP_STORAGE -> FileSystemFolder(File(location.reference))
+            LocationKind.EXTERNAL_FOLDER ->
+                DocumentFolder.fromTree(context, Uri.parse(location.reference))
+        }
+    }.getOrNull()
 
     private fun addFileRoot(roots: MutableMap<String, StorageFolder>, directory: File) {
         val folder = FileSystemFolder(directory)

@@ -17,7 +17,7 @@ the Windows compatibility runtime will be plugged into.
 
 ---
 
-## Current status — Milestone 1 (foundation)
+## Current status — Milestone 2 (runtime foundation)
 
 **Build: green.** Every push and pull request runs unit tests, Android lint and a
 debug APK build on GitHub Actions; the APK is published as a downloadable
@@ -49,6 +49,31 @@ NDK 27 (CMake 3.22.1) on `ubuntu-latest`, producing a ~3.3 MB debug APK
 **There is no Windows compatibility runtime in this repository**, and this app is
 **not** a reskin of Winlator: nothing here requires a separate Winlator install.
 The runtime will be built into this APK in later milestones.
+
+### What Milestone 2 added
+
+Milestone 2 is a **runtime-engineering** milestone, not a UI one. It builds the
+structure the Windows compatibility runtime will be plugged into, and it replaces
+one assumption with a measurement.
+
+| Area | State |
+| --- | --- |
+| Modular runtime package (`RuntimeManager`, backends, process manager, configuration, diagnostics) | ✅ Implemented, unit tested |
+| Install validation — real PE header check for a 32-bit x86 Windows executable | ✅ Implemented, unit tested |
+| Graphics backend selection (VirGL / PanVK / llvmpipe) with the Mali-G52 rules encoded | ✅ Implemented, unit tested |
+| CPU translator catalogue (Box86 / Box64-WOW64 / FEX) | ✅ Implemented, unit tested |
+| Graphics capability probe (`graphics_probe`) — GPU nodes, Vulkan loader | ✅ Built, needs a device run |
+| Process capability probe (`process_probe`) — exec/wait, tree, process limit | ✅ Built, needs a device run |
+| Launch lifecycle wired to `OrientationController` | ✅ Implemented, unit tested |
+| Runtime section in crash reports | ✅ Implemented |
+| Wine, Box86/Box64/FEX, glibc userland, graphics translation, audio bridge | ❌ Not integrated — no binaries ship |
+| Launching the game | ❌ Still impossible; the Launch button stays disabled |
+
+The choice of default graphics backend, and the reasons, are written up in
+[`docs/RUNTIME_ARCHITECTURE.md`](docs/RUNTIME_ARCHITECTURE.md). The short version:
+Panfrost's OpenGL ES 3.1 is Khronos-conformant on the Mali-G52 while PanVK is
+experimental and non-conformant on Bifrost v7, so **VirGL + WineD3D is the
+default** and Vulkan is never selected automatically.
 
 ---
 
@@ -387,22 +412,20 @@ The launcher notices when it did not get to close properly:
 
 1. **Milestone 1 — foundation** *(done)*: Android module, launcher UI,
    storage detection, CI, documentation.
-2. **Milestone 2 — importer** *(done)*: pick the game folder through the Storage
-   Access Framework, verify the expected layout, persist the access grant, and
-   read the files in place instead of copying them.
-3. **Milestone 3 — native hosting** *(done)*: the NDK builds a probe executable
-   that ships as `libnative_probe.so`; the app runs it from the APK's library
-   folder and reports the measured ABI, API level and W^X verdict. This is the
-   mechanism Wine and Box86 will be launched through.
-4. **Milestone 4 — container** *(in progress)*: the capability probe above is
-   the first step — it establishes whether ptrace, anonymous-memory execution
-   and 32-bit processes are available, which decides between PRoot and a
-   chroot-free approach, and between Box86 and an arm64 emulator. Next comes
-   the glibc userland booting inside the app.
-5. **Milestone 5 — Wine + Box86**: Wine arm64 build with a 32-bit prefix, Box86
-   translating `Vampire.exe`.
-6. **Milestone 6 — graphics and audio**: VirGL + WineD3D, then the audio bridge.
-7. **Milestone 7 — input and polish**: touch/gamepad mapping, on-screen controls,
+2. **Milestone 2 — runtime foundation** *(done)*: the modular runtime package,
+   install validation by PE header, graphics and CPU backend selection with the
+   Mali-G52 findings encoded, two new device probes, the launch lifecycle wired
+   to orientation, and a runtime section in reports. Nothing launches yet —
+   see [`docs/RUNTIME_ARCHITECTURE.md`](docs/RUNTIME_ARCHITECTURE.md).
+3. **Milestone 3 — container**: a glibc userland booted inside the app over
+   PRoot. The probes already establish whether ptrace, anonymous-memory
+   execution and 32-bit processes are available, which is what decides whether
+   PRoot can work here at all.
+4. **Milestone 4 — Wine + CPU translation**: a Wine build with a 32-bit prefix,
+   plus Box86 (or Box64-WOW64 / FEX) translating `Vampire.exe`.
+5. **Milestone 5 — graphics and audio**: VirGL + WineD3D first, PanVK + DXVK
+   only if it measures well on the device, then the audio bridge.
+6. **Milestone 6 — input and polish**: touch/gamepad mapping, on-screen controls,
    per-title settings, performance presets.
 
 Each milestone is expected to land as its own set of commits with the CI green.
@@ -441,6 +464,36 @@ Unit tests are plain JVM tests (no emulator needed) and run on every CI build:
   rotated away, and delete works.
 * `ReportBuilderTest` — the wording of a report: a background stop is never
   called a crash, a report made on request says so, and durations read well.
+
+* `InstallationValidatorTest` — the PE header check: a real 32-bit x86
+  executable is accepted, and a 64-bit build, a 64-bit ARM build, an ELF file,
+  an empty file, an MZ file with no PE header, a wrong PE signature and a
+  truncated download are each rejected with their own message. The size is read
+  from the whole stream, not from the header window.
+* `GraphicsBackendTest` — that VirGL is the default, that **PanVK is never
+  picked automatically** even on a device that reports a working Vulkan stack,
+  that an explicit Vulkan choice falls back when unsupported, and that no
+  backend reports ready from a device measurement alone.
+* `CpuTranslatorTest` — that Box86 is preferred only when the device can run
+  32-bit processes, and that the WOW64 and FEX routes do not ask for a 32-bit
+  userland.
+* `AudioBridgeTest` — AAudio by default, OpenSL ES when the process limit is
+  tight, and an unreadable limit treated as no constraint rather than a block.
+* `RuntimeHostTest` — the launch lifecycle: refusal when the runtime is absent,
+  refusal when the install was rejected, and above all that **the screen is
+  never handed over unless a game process exists**.
+* `GameProcessManagerTest` — exit codes, signals, and the case Android makes
+  unavoidable: a process that vanished with no exit status is reported as
+  reaped, not as a clean exit.
+* `WineEnvironmentTest` — that the prefix and every runtime file live under a
+  directory the app owns and never beside the game, and that a 32-bit
+  executable gets a 32-bit prefix regardless of the device.
+* `RuntimeConfigurationTest` — settings round trip, and that a stored backend
+  from an older build degrades to "automatic" instead of crashing.
+* `GraphicsProbeTest` / `ProcessProbeTest` / `RuntimeCapabilitiesReaderTest` —
+  how probe output is read, including that a probe which did not complete is
+  not treated as a measurement, and that a Vulkan loader without a GPU node is
+  not "Vulkan usable".
 
 CI additionally fails the build if `libnative_probe.so` is not packaged under
 `lib/<abi>/` in the APK, because without it no native runtime can ever start.
