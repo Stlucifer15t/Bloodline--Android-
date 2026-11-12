@@ -120,7 +120,14 @@ class RuntimeLauncher(
         val executableName = File(validation.install.executablePath).name
 
         val graphics = GraphicsConfiguration.forBackend(backend, capabilities)
-        val audioConfiguration = AudioConfiguration(bridge = audio)
+        // The plugin is searched for, not assumed. When it is absent the
+        // generated asound.conf names ALSA's null device instead of a plugin
+        // that would fail to resolve, so the game gets silence rather than a
+        // device that will not open.
+        val audioConfiguration = AudioConfiguration(
+            bridge = audio,
+            plugin = layout.alsaPlugin(flavour),
+        )
 
         val wine = WineEnvironment(
             runtimeRoot = store.root.absolutePath,

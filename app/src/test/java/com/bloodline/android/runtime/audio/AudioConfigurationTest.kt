@@ -23,8 +23,19 @@ class AudioConfigurationTest {
     @get:Rule
     val temporary = TemporaryFolder()
 
+    private val plugin = File("/runtime/lib/alsa-lib/libpcm_bloodline.so")
+
+    /** Sound is enabled, but nothing in the runtime is carrying it yet. */
     private val configuration = AudioConfiguration(
         bridge = AudioBridge.AAUDIO,
+        sampleRateHz = 48_000,
+        bufferFrames = 512,
+    )
+
+    /** The same bridge once the plugin library actually exists. */
+    private val routed = AudioConfiguration(
+        bridge = AudioBridge.AAUDIO,
+        plugin = plugin,
         sampleRateHz = 48_000,
         bufferFrames = 512,
     )
@@ -33,12 +44,46 @@ class AudioConfigurationTest {
     fun `the generated config overrides the default ALSA device`() {
         // `pcm.!default` replaces the device every ALSA client asks for when it
         // asks for "default", so nothing needs per-application configuration.
-        val text = configuration.asoundConf()
+        val text = routed.asoundConf()
 
         assertTrue(text.contains("pcm.!default"))
         assertTrue(text.contains("type bloodline"))
         assertTrue(text.contains("rate 48000"))
         assertTrue(text.contains("buffer 512"))
+    }
+
+    @Test
+    fun `a config with no plugin names the null device, not a plugin that is not there`() {
+        // This is the case that applies today: the plugin library does not
+        // exist. Naming its PCM type anyway would fail with "Unknown PCM" the
+        // moment Wine opened the device; ALSA's null device always resolves.
+        val text = configuration.asoundConf()
+
+        assertTrue(text.contains("pcm.!default"))
+        assertTrue(text.contains("type null"))
+        assertFalse(text.contains("type bloodline"))
+    }
+
+    @Test
+    fun `ALSA_PLUGIN_DIR points at wherever the plugin actually is`() {
+        val environment = routed.environment(temporary.root)
+
+        assertEquals(
+            "/runtime/lib/alsa-lib",
+            environment["ALSA_PLUGIN_DIR"],
+        )
+    }
+
+    @Test
+    fun `enabled sound with no plugin is reported as silent, not as working`() {
+        // "Sound is on" and "sound is reaching the speakers" are different
+        // claims, and only the first one can be made here.
+        assertTrue(configuration.producesSound)
+        assertFalse(configuration.routedToAndroid)
+        assertTrue(configuration.summary().contains("silent"))
+
+        assertTrue(routed.routedToAndroid)
+        assertTrue(routed.summary().contains("48000"))
     }
 
     @Test
@@ -60,6 +105,9 @@ class AudioConfigurationTest {
         val environment = configuration.environment(temporary.root)
 
         assertTrue(environment["ALSA_CONFIG_PATH"]!!.endsWith("asound.conf"))
+        // With no plugin there is nothing to point at, so the conventional
+        // directory is named. It is harmless: ALSA falls back to its own
+        // search path, and the config it was given names only the null device.
         assertTrue(environment["ALSA_PLUGIN_DIR"]!!.endsWith("lib/alsa-lib"))
     }
 
@@ -87,7 +135,8 @@ class AudioConfigurationTest {
 
     @Test
     fun `the summary says what is actually configured`() {
+        assertTrue(routed.summary().contains("AAudio"))
+        assertTrue(routed.summary().contains("48000"))
         assertTrue(configuration.summary().contains("AAudio"))
-        assertTrue(configuration.summary().contains("48000"))
     }
 }

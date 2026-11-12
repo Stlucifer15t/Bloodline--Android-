@@ -1,6 +1,7 @@
 package com.bloodline.android.runtime.packaging
 
 import com.bloodline.android.runtime.WineFlavour
+import com.bloodline.android.runtime.audio.AudioConfiguration
 import java.io.File
 
 /**
@@ -74,6 +75,18 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
         return store.packageDir(RuntimePackageCatalog.WOWBOX64).find(name)
             ?: store.packageDir(RuntimePackageCatalog.FEX).find(name)
     }
+
+    /**
+     * The ALSA PCM plugin library, if the runtime ships one.
+     *
+     * Searched for rather than assumed, and **not expected to be found**: the
+     * plugin this app names in `asound.conf` is ours to write and has not been
+     * written. [AudioConfiguration] asks for it on every launch and falls back
+     * to ALSA's own `null` device when it is absent, so a null answer here is a
+     * supported outcome and not a failure.
+     */
+    fun alsaPlugin(flavour: WineFlavour = WineFlavour.DEFAULT): File? =
+        libDirs(flavour).firstNotNullOfOrNull { it.find(AudioConfiguration.PLUGIN_LIBRARY) }
 
     /** The standalone Box64 binary, needed only by the x86_64 Wine flavour. */
     fun emulatorBinary(): File? = store.packageDir(RuntimePackageCatalog.BOX64_BIONIC)

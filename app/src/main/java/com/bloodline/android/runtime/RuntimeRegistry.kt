@@ -111,7 +111,7 @@ object RuntimeRegistry {
             title = "Audio bridge",
             detail = when (statuses.audio) {
                 READY -> "Wine's ALSA driver in the prefix, routed to Android through the " +
-                    "plugin this app implements."
+                    "runtime's PCM plugin when one is present."
                 PARTIAL -> "Audio is configured but the device has not been measured yet."
                 NOT_INTEGRATED -> "Not configured yet."
             },

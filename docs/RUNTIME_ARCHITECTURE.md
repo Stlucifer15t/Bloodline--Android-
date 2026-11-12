@@ -217,12 +217,28 @@ The launcher already stores an `AudioBackend` preference (Auto / AAudio /
 OpenSL ES). The runtime honours it.
 
 The hop this app owns is the last one, and it is done the way ALSA intends: an
-`asound.conf` generated into the runtime folder defines `pcm.!default` as a
-plugin this app implements on top of Android's audio API, and the guest is
-pointed at it with `ALSA_CONFIG_PATH` and `ALSA_PLUGIN_DIR`. Those two variables
-are what the working Android runtimes set, which is why they are used here
-rather than invented ones. Inside the prefix, Wine is told through the registry
-to use its ALSA driver.
+`asound.conf` generated into the runtime folder defines `pcm.!default`, and the
+guest is pointed at it with `ALSA_CONFIG_PATH` and `ALSA_PLUGIN_DIR`. Those two
+variables are what the working Android runtimes set, which is why they are used
+here rather than invented ones. Inside the prefix, Wine is told through the
+registry to use its ALSA driver.
+
+Which plugin `pcm.!default` names is **searched for, not assumed**. The runtime
+packages are scanned on every launch for a library implementing this app's PCM
+type, and:
+
+* found — "default" routes through it, at the configured rate and buffer size;
+* not found — "default" is ALSA's own `null` device.
+
+The second case is the one that applies today, because that library has not
+been written. It is a supported outcome rather than a failure for a specific
+reason: naming a PCM type nothing implements is not a graceful degradation.
+ALSA fails with "Unknown PCM" the moment Wine opens the device, and the game's
+audio dies with it. The `null` device always resolves — it opens, it accepts
+every sample the game writes, and it emits silence, so the guest sees a sound
+card that works and the rest of the runtime can still be exercised through it.
+The diagnostics distinguish the two, so a report can say "sound is enabled but
+nothing is carrying it" instead of implying both work.
 
 "None" is a real setting, not an absent one: it starts the game muted so that a
 sound-server problem cannot stop the rest of the runtime from being tested.
