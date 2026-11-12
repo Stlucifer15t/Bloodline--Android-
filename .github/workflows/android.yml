@@ -223,6 +223,18 @@ jobs:
             done
           } > failure-report.md
 
+          # Gradle points at an HTML report nobody can read from a comment, so
+          # the assertion messages come straight out of the JUnit XML.
+          {
+            echo "<details open><summary>Failing unit tests</summary>"
+            echo ""
+            echo '```'
+            python3 .github/scripts/summarise-test-failures.py
+            echo '```'
+            echo "</details>"
+            echo ""
+          } >> failure-report.md
+
           if [ -n "${PR_NUMBER:-}" ] && gh pr comment "$PR_NUMBER" --body-file failure-report.md; then
             echo "Posted the failure report to pull request #$PR_NUMBER"
             exit 0
