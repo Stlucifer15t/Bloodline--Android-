@@ -573,7 +573,8 @@ class SettingsActivity : AppCompatActivity() {
             // integrated and the launcher was a UI foundation, which it went
             // on saying after Wine had been downloaded and had booted a
             // prefix on the device.
-            val missingPackages = RuntimeProviders.packaged(this).missing()
+            // `this` is the SectionScope here, not a Context.
+            val missingPackages = RuntimeProviders.packaged(this@SettingsActivity).missing()
             readOnlyRow(
                 title = getString(R.string.setting_runtime_version),
                 detail = getString(
