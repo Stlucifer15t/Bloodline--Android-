@@ -49,15 +49,15 @@ class ArchiveExtractor {
         target: File,
         onProgress: (Int) -> Unit = {},
     ): Result {
-        if (!archive.isFile) return Result.Failure("The archive is not a file: ${archive.name}")
+        // Refused at the door rather than halfway through: a corrupt archive
+        // unpacked until it breaks leaves a half-written runtime behind, and
+        // the directory has to be deleted to be sure.
+        when (val inspection = inspect(archive)) {
+            is Inspection.Accepted -> Unit
+            is Inspection.Refused -> return Result.Failure(inspection.reason)
+        }
 
         val format = detectFormat(archive)
-        if (format == ArchiveFormat.UNKNOWN) {
-            return Result.Failure(
-                "The format of ${archive.name} is not recognised. The runtime cannot " +
-                    "unpack it, so it will not be installed.",
-            )
-        }
 
         return try {
             target.mkdirs()
@@ -68,11 +68,89 @@ class ArchiveExtractor {
             Result.Success(count, format)
         } catch (error: SecurityException) {
             target.deleteRecursively()
-            Result.Failure("The archive contained an unsafe path and was refused: ${error.message}")
+            Result.Failure("${archive.name} was refused: ${error.message}")
         } catch (error: Exception) {
             target.deleteRecursively()
             Result.Failure("Unpacking ${archive.name} failed: ${error.message}")
         }
+    }
+
+    /**
+     * What [archive] is, and whether it is structurally sound enough to unpack.
+     *
+     * Run before extraction, on purpose. [detectFormat] only reads magic bytes,
+     * which is not enough: a truncated download and an HTML error page both
+     * have *some* first bytes, and both would otherwise be handed to the
+     * extractor, which would then report a failure from the middle of a
+     * decompression instead of at the door.
+     *
+     * For a tar-based archive this decompresses the first block and checks the
+     * header's checksum, which is the cheapest structural claim there is: it
+     * proves the file is a tar, and not merely that it started like one.
+     */
+    fun inspect(archive: File): Inspection {
+        if (!archive.isFile) {
+            return Inspection.Refused("There is no file at ${archive.path}.")
+        }
+        if (archive.length() == 0L) {
+            return Inspection.Refused("${archive.name} is empty, so the download did not finish.")
+        }
+
+        val format = detectFormat(archive)
+        if (format == ArchiveFormat.UNKNOWN) {
+            return Inspection.Refused(
+                "The format of ${archive.name} is not recognised. It may have been " +
+                    "replaced by an error page, or the download may have been interrupted.",
+            )
+        }
+        if (format == ArchiveFormat.ZIP) return Inspection.Accepted(format)
+
+        return try {
+            val header = firstBlock(archive, format)
+            when {
+                header == null -> Inspection.Refused(
+                    "${archive.name} holds no data: the download was truncated.",
+                )
+                header.all { it == 0.toByte() } -> Inspection.Refused(
+                    "${archive.name} begins with an empty tar block, so it is truncated.",
+                )
+                !header.tarChecksumIsValid() -> Inspection.Refused(
+                    "${archive.name} does not begin with a valid tar header. The download " +
+                        "is corrupt, or the compression is not the one its format claims.",
+                )
+                else -> Inspection.Accepted(format)
+            }
+        } catch (error: Exception) {
+            Inspection.Refused("${archive.name} could not be read as ${format.title}: ${error.message}")
+        }
+    }
+
+    /** What [inspect] concluded. */
+    sealed interface Inspection {
+        data class Accepted(val format: ArchiveFormat) : Inspection
+        data class Refused(val reason: String) : Inspection
+    }
+
+    /** The first 512 bytes of a tar-based [archive], decompressed. */
+    private fun firstBlock(archive: File, format: ArchiveFormat): ByteArray? {
+        val block = ByteArray(TarExtractor.BLOCK_SIZE)
+        decompressed(archive, format).use { stream ->
+            var total = 0
+            while (total < block.size) {
+                val count = stream.read(block, total, block.size - total)
+                if (count < 0) break
+                total += count
+            }
+            return if (total == 0) null else block
+        }
+    }
+
+    private fun decompressed(archive: File, format: ArchiveFormat): InputStream = when (format) {
+        ArchiveFormat.TAR -> archive.inputStream()
+        ArchiveFormat.TAR_XZ -> XZInputStream(archive.inputStream())
+        ArchiveFormat.TAR_ZST -> ZstdInputStream(archive.inputStream())
+        ArchiveFormat.TAR_GZ -> GZIPInputStream(archive.inputStream())
+        else -> throw IllegalArgumentException("${format.title} is not a tar archive")
     }
 
     /** Reads the first bytes and identifies the container. */
@@ -105,6 +183,9 @@ class ArchiveExtractor {
                 } else {
                     destination.parentFile?.mkdirs()
                     destination.outputStream().use { out -> copy(zip, out) }
+                    // ZIP carries no Unix mode that Java exposes, so the
+                    // decision is made from the file's contents instead.
+                    ArchivePermissions.apply(destination)
                     count++
                     onProgress(count)
                 }

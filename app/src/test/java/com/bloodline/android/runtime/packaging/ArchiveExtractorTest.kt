@@ -55,10 +55,15 @@ class ArchiveExtractorTest {
         System.arraycopy(nameBytes, 0, block, 0, minOf(nameBytes.size, 100))
         val sizeText = String.format("%011o", size).toByteArray(Charsets.US_ASCII)
         System.arraycopy(sizeText, 0, block, 124, sizeText.size)
-        block[148] = '0'.code.toByte()
         block[156] = typeflag
         "ustar\u000000".toByteArray(Charsets.US_ASCII).copyInto(block, 257)
 
+        // The checksum counts its own field as eight spaces, so the field is
+        // filled with spaces before the sum is taken. Writing the size first
+        // and summing whatever happens to be in the checksum field - the
+        // obvious way to write this helper - produces a header real tar
+        // rejects, and would have hidden the fact that we now check.
+        block.fill(0x20.toByte(), 148, 156)
         var sum = 0
         for (index in block.indices) sum += block[index].toInt() and 0xFF
         val checksum = String.format("%06o\u0000 ", sum).toByteArray(Charsets.US_ASCII)
@@ -181,7 +186,9 @@ class ArchiveExtractorTest {
         val result = extractor.extract(archive, target)
 
         assertTrue(result is ArchiveExtractor.Result.Failure)
-        assertTrue((result as ArchiveExtractor.Result.Failure).reason.contains("unsafe path"))
+        // The refusal names the entry, so a report says which archive and which
+        // name, not merely that something was "unsafe".
+        assertTrue((result as ArchiveExtractor.Result.Failure).reason.contains("refused"))
     }
 
     @Test
@@ -199,7 +206,9 @@ class ArchiveExtractorTest {
         val result = extractor.extract(archive, target)
 
         assertTrue(result is ArchiveExtractor.Result.Failure)
-        assertTrue((result as ArchiveExtractor.Result.Failure).reason.contains("unsafe path"))
+        // The refusal names the entry, so a report says which archive and which
+        // name, not merely that something was "unsafe".
+        assertTrue((result as ArchiveExtractor.Result.Failure).reason.contains("refused"))
     }
 
     @Test
@@ -311,7 +320,7 @@ class ArchiveExtractorTest {
         val result = extractor.extract(File(temporary.root, "nope.wcp"), target("missing"))
 
         assertTrue(result is ArchiveExtractor.Result.Failure)
-        assertTrue((result as ArchiveExtractor.Result.Failure).reason.contains("not a file"))
+        assertTrue((result as ArchiveExtractor.Result.Failure).reason.contains("no file"))
     }
 
     @Test
@@ -326,5 +335,99 @@ class ArchiveExtractorTest {
         assertFalse(resolver.resolve("") != null)
         assertFalse(resolver.resolve("   ") != null)
         assertTrue(resolver.resolve("bin/wine") != null)
+    }
+
+    // ------------------------------------------------- structural validation
+
+    @Test
+    fun `a good archive is accepted before anything is written`() {
+        val accepted = extractor.inspect(tar("bin/wine" to "wine"))
+
+        assertTrue(accepted is ArchiveExtractor.Inspection.Accepted)
+    }
+
+    @Test
+    fun `an archive whose tar header fails its checksum is refused before extraction`() {
+        // The failure this exists for: a truncated transfer and an HTML error
+        // page both still have first bytes. Reading them as a header produces
+        // a nonsense filename and size rather than a refusal, and the user is
+        // told only that "unpacking failed" much later.
+        val corrupt = tar("bin/wine" to "wine")
+        val bytes = corrupt.readBytes()
+        bytes[0] = 'X'.code.toByte() // the name changes, so the checksum must not match
+        corrupt.writeBytes(bytes)
+        val target = target("corrupt")
+
+        val inspection = extractor.inspect(corrupt)
+        val result = extractor.extract(corrupt, target)
+
+        assertTrue(inspection is ArchiveExtractor.Inspection.Refused)
+        assertTrue(
+            (inspection as ArchiveExtractor.Inspection.Refused).reason.contains("tar header"),
+        )
+        assertTrue(result is ArchiveExtractor.Result.Failure)
+        assertFalse(File(target, "bin").exists())
+    }
+
+    @Test
+    fun `an empty download and HTML in place of a package are refused`() {
+        val empty = temporary.newFile("empty.wcp")
+        assertTrue(extractor.inspect(empty) is ArchiveExtractor.Inspection.Refused)
+
+        val html = temporary.newFile("error.wcp")
+        html.writeBytes("<!DOCTYPE html><html>".toByteArray() + ByteArray(600))
+        val inspection = extractor.inspect(html)
+        assertTrue(inspection is ArchiveExtractor.Inspection.Refused)
+        assertTrue(
+            (inspection as ArchiveExtractor.Inspection.Refused).reason.contains("not recognised"),
+        )
+    }
+
+    @Test
+    fun `a tar truncated to nothing is refused rather than unpacked to nothing`() {
+        // A download cut off after the magic bytes still identifies as the
+        // right format, so the format check alone would wave it through.
+        val plain = tar("bin/wine" to "wine")
+        val truncated = temporary.newFile("truncated.wcp")
+        org.tukaani.xz.XZOutputStream(
+            truncated.outputStream().buffered(),
+            org.tukaani.xz.LZMA2Options(),
+        ).use { out -> out.write(plain.readBytes()) }
+        val kept = truncated.readBytes().copyOf(64)
+        truncated.writeBytes(kept)
+
+        val inspection = extractor.inspect(truncated)
+        assertTrue(inspection is ArchiveExtractor.Inspection.Refused)
+    }
+
+    // ------------------------------------------------------------ permissions
+
+    @Test
+    fun `a binary that unpacks from a zip is made executable`() {
+        // ZIP carries no Unix mode that Java exposes, so the decision has to
+        // come from the file's own bytes. Without it, `wine` unpacks with no
+        // execute bit and the runtime fails with a bare "Permission denied".
+        val archive = zip("bin/wine" to ELF_STUB)
+        val target = target("zip-exec")
+
+        assertTrue(extractor.extract(archive, target) is ArchiveExtractor.Result.Success)
+
+        val wine = File(target, "bin/wine")
+        assertTrue("an ELF file must be executable", wine.canExecute())
+    }
+
+    @Test
+    fun `a data file is not made executable`() {
+        val archive = zip("share/wine/wine.inf" to "[Version]\r\n")
+        val target = target("zip-noexec")
+
+        assertTrue(extractor.extract(archive, target) is ArchiveExtractor.Result.Success)
+
+        assertFalse(File(target, "share/wine/wine.inf").canExecute())
+    }
+
+    /** Enough of an ELF header for the content sniff: the magic, nothing more. */
+    private companion object {
+        const val ELF_STUB = "\u007FELF"
     }
 }

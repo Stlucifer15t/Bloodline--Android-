@@ -58,7 +58,25 @@ data class RuntimePackage(
 
     init {
         require(id.isNotBlank()) { "A package needs an id." }
-        require(url.startsWith("https://")) { "$id must be fetched over HTTPS." }
+        require(url.startsWith("https://") || isLoopback(url)) {
+            "$id must be fetched over HTTPS."
+        }
+    }
+
+    private companion object {
+
+        /**
+         * True for a URL that never leaves this machine.
+         *
+         * Plain HTTP is refused everywhere else, because these packages are
+         * executables and a cleartext fetch is an invitation to substitute
+         * one. Loopback is the single exception: the traffic crosses no
+         * network, and it is what lets the acquisition path be exercised end
+         * to end against a real server instead of a mock.
+         */
+        private fun isLoopback(url: String): Boolean =
+            url.startsWith("http://127.0.0.1:") || url.startsWith("http://localhost:") ||
+                url.startsWith("http://[::1]:")
     }
 }
 

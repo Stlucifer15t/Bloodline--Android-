@@ -1,6 +1,7 @@
 package com.bloodline.android.runtime.packaging
 
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -75,9 +76,10 @@ class RuntimePackageManager(
 
         val staged = store.stagedFile(pack)
         try {
-            staged.parentFile?.mkdirs()
-            if (staged.exists()) staged.delete()
-
+            // Deliberately *not* deleting a staged file that is already there:
+            // it is the record of where the last attempt got to, and throwing
+            // it away is what would force a 226 MB download to start again
+            // after 200 MB. [download] decides what, if anything, to keep.
             download(pack, staged, onProgress)
             onProgress(Progress(pack, Phase.VERIFYING))
 
@@ -123,46 +125,153 @@ class RuntimePackageManager(
     fun missingPackages(): List<RuntimePackage> =
         RuntimePackageCatalog.REQUIRED.filter { stateOf(it) !is State.Installed }
 
+    /**
+     * Downloads [pack] to [destination], picking up where a previous attempt
+     * left off.
+     *
+     * Resuming matters here more than it would for an ordinary download.
+     * Wine is 226 MB over a connection that is, for most of this app's users,
+     * a phone on a mobile network, so an interrupted transfer is the normal
+     * case rather than the exception. Restarting one from zero after 200 MB is
+     * the kind of failure that makes people give up.
+     *
+     * The staged file is the record: its length is where the last attempt got
+     * to, and a `Range` request asks the server for the rest. Three things can
+     * come back, and only one of them is a problem:
+     *
+     * * **206 Partial Content** — resume, appending to what is there.
+     * * **200 OK** — the server ignored the range, so the whole body is coming
+     *   and the partial file has to be discarded, not appended to.
+     * * **416 Range Not Satisfiable** — the partial file no longer corresponds
+     *   to what the server has, which is what happens when upstream replaces
+     *   an asset underneath us. Discard and start clean.
+     *
+     * Nothing here decides whether the result is *correct* — that is
+     * [verify]'s job, and it runs on whatever is on disk afterwards. A resumed
+     * download is held to exactly the same standard as a fresh one.
+     */
     private fun download(pack: RuntimePackage, destination: File, onProgress: (Progress) -> Unit) {
+        destination.parentFile?.mkdirs()
+
+        // A previous attempt may already have the whole thing: if the transfer
+        // finished but extraction or verification failed afterwards, there is
+        // nothing to fetch.
+        if (destination.isFile && destination.length() == pack.sizeBytes) {
+            onProgress(Progress(pack, Phase.DOWNLOADING, pack.sizeBytes, pack.sizeBytes))
+            return
+        }
+
+        var from = if (destination.isFile) destination.length() else 0L
+        if (from >= pack.sizeBytes) {
+            // Longer than it should be, which no honest transfer produces.
+            destination.delete()
+            from = 0L
+        }
+
+        var lastProblem = "the transfer did not finish"
+        repeat(MAX_ATTEMPTS) {
+            when (val result = transfer(pack, destination, from, onProgress)) {
+                Transfer.Complete -> return
+                is Transfer.Restart -> {
+                    lastProblem = result.reason
+                    destination.delete()
+                    from = 0L
+                }
+                is Transfer.Failed -> throw IOException(result.reason)
+            }
+        }
+        throw IOException("${pack.name} did not finish downloading: $lastProblem.")
+    }
+
+    private sealed interface Transfer {
+        data object Complete : Transfer
+        data class Restart(val reason: String) : Transfer
+        data class Failed(val reason: String) : Transfer
+    }
+
+    /** One HTTP attempt, appending to [destination] from byte [from]. */
+    private fun transfer(
+        pack: RuntimePackage,
+        destination: File,
+        from: Long,
+        onProgress: (Progress) -> Unit,
+    ): Transfer {
         val connection = URL(pack.url).openConnection() as HttpURLConnection
         try {
             connection.instanceFollowRedirects = true
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
+            if (from > 0) connection.setRequestProperty("Range", "bytes=$from-")
             connection.connect()
 
-            val code = connection.responseCode
-            if (code !in 200..299) {
-                throw IOException("the server answered $code")
-            }
-
-            val total = connection.contentLengthLong.takeIf { it > 0 } ?: pack.sizeBytes
-            var read = 0L
-            var lastReport = 0L
-
-            connection.inputStream.use { input ->
-                destination.outputStream().buffered().use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        read += count
-
-                        // Reported at most a few times a second: a progress
-                        // callback per buffer would spend the whole download
-                        // hopping to the UI thread.
-                        if (read - lastReport > REPORT_INTERVAL_BYTES) {
-                            lastReport = read
-                            onProgress(Progress(pack, Phase.DOWNLOADING, read, total))
-                        }
+            return when (val code = connection.responseCode) {
+                HTTP_PARTIAL -> {
+                    if (from == 0L) {
+                        Transfer.Restart("the server sent a partial response to a request that asked for nothing")
+                    } else {
+                        copyBody(pack, connection, destination, from, append = true, onProgress)
                     }
                 }
+
+                // The bytes we already hold no longer correspond to what the
+                // server has, which is what an asset replaced underneath a pin
+                // looks like from here.
+                HTTP_RANGE_UNSATISFIABLE -> Transfer.Restart("the server would not serve the rest of the file (416)")
+
+                in HTTP_OK..HTTP_LAST_OK -> {
+                    // The range was refused and the whole body is on its way,
+                    // so anything already on disk is the wrong bytes to append
+                    // to. Truncate rather than append: appending here would
+                    // produce a file of the right shape and the wrong content.
+                    if (from > 0L) {
+                        return Transfer.Restart(
+                            "the server ignored the request to continue and sent the whole file (200)",
+                        )
+                    }
+                    copyBody(pack, connection, destination, 0L, append = false, onProgress)
+                }
+
+                else -> Transfer.Failed("the server answered $code")
             }
-            onProgress(Progress(pack, Phase.DOWNLOADING, read, total))
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun copyBody(
+        pack: RuntimePackage,
+        connection: HttpURLConnection,
+        destination: File,
+        alreadyHave: Long,
+        append: Boolean,
+        onProgress: (Progress) -> Unit,
+    ): Transfer {
+        val declared = connection.contentLengthLong.takeIf { it > 0 } ?: 0L
+        val total = if (append) (alreadyHave + declared).takeIf { it > 0 } ?: pack.sizeBytes else declared
+        var read = alreadyHave
+        var lastReport = read
+
+        connection.inputStream.use { input ->
+            FileOutputStream(destination, append).buffered().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                    read += count
+
+                    // Reported at most a few times a second: a callback per
+                    // buffer would spend the whole download hopping to the UI
+                    // thread.
+                    if (read - lastReport > REPORT_INTERVAL_BYTES) {
+                        lastReport = read
+                        onProgress(Progress(pack, Phase.DOWNLOADING, read, total))
+                    }
+                }
+            }
+        }
+        onProgress(Progress(pack, Phase.DOWNLOADING, read, total))
+        return Transfer.Complete
     }
 
     /**
@@ -233,6 +342,18 @@ class RuntimePackageManager(
     }
 
     private companion object {
+        const val HTTP_OK = 200
+        const val HTTP_LAST_OK = 299
+        const val HTTP_PARTIAL = 206
+        const val HTTP_RANGE_UNSATISFIABLE = 416
+
+        /**
+         * Two attempts, not one and not forever: one retry is enough to absorb
+         * a server that refuses a range, and an endless loop over a dead link
+         * is worse than telling the user it failed.
+         */
+        const val MAX_ATTEMPTS = 2
+
         const val CONNECT_TIMEOUT_MS = 30_000
         const val READ_TIMEOUT_MS = 60_000
         const val DEFAULT_BUFFER = 64 * 1024

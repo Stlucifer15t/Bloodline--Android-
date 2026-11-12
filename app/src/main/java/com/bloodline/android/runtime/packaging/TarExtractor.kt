@@ -58,6 +58,18 @@ internal class TarExtractor {
             // is enough to stop.
             if (header.isBlank()) break
 
+            // Before any field in this header is believed. A stream that is
+            // not a tar at all - an HTML error page served instead of the
+            // download, a truncated transfer - still yields 512-byte blocks of
+            // something, and without this they are read as names and sizes.
+            // Garbage in, then, produces garbage paths rather than a refusal.
+            if (!header.tarChecksumIsValid()) {
+                throw SecurityException(
+                    "a tar header failed its checksum, so the archive is corrupt " +
+                        "or is not a tar archive at all",
+                )
+            }
+
             val typeflag = header[TYPEFLAG_OFFSET]
             val size = header.octalAt(SIZE_OFFSET, SIZE_LENGTH)
             val padding = (BLOCK_SIZE - (size % BLOCK_SIZE)) % BLOCK_SIZE
@@ -85,6 +97,7 @@ internal class TarExtractor {
                     destination.parentFile?.mkdirs()
                     stream.copyInto(destination, size)
                     stream.skip(padding)
+                    ArchivePermissions.apply(destination, header.octalAt(MODE_OFFSET, MODE_LENGTH))
                     written++
                     onProgress(written)
                 }
@@ -170,6 +183,8 @@ internal class TarExtractor {
 
         private const val NAME_OFFSET = 0
         private const val NAME_LENGTH = 100
+        private const val MODE_OFFSET = 100
+        private const val MODE_LENGTH = 8
         private const val SIZE_OFFSET = 124
         private const val SIZE_LENGTH = 12
         private const val TYPEFLAG_OFFSET = 156
@@ -177,6 +192,10 @@ internal class TarExtractor {
         private const val LINK_NAME_LENGTH = 100
         private const val PREFIX_OFFSET = 345
         private const val PREFIX_LENGTH = 155
+
+        /** The header's own checksum field: 8 bytes of octal at 148. */
+        private const val CHECKSUM_OFFSET = 148
+        private const val CHECKSUM_LENGTH = 8
 
         // ASCII codes for the tar typeflag byte, written literally because a
         // `const val` cannot call `.code`.
@@ -258,3 +277,54 @@ private class BlockStream(private val source: InputStream) {
         const val BUFFER = 64 * 1024
     }
 }
+
+/**
+ * True when a 512-byte tar block's checksum field matches its contents.
+ *
+ * This is the cheapest structural claim that can be made about a tar archive,
+ * and it is the one that matters at the door: a truncated download and an HTML
+ * error page both still yield 512 bytes of *something*, and without this those
+ * bytes are read as a filename and a size. Checking first turns "the archive
+ * is unusable" from a failure discovered halfway through decompression into a
+ * refusal before a single directory is created.
+ *
+ * The field is the sum of every byte in the block, counting the checksum field
+ * itself as eight spaces. Both the signed and the unsigned sum are accepted,
+ * because historic tar writers disagree about which one they wrote and
+ * refusing a valid archive over that argument would be a poor trade.
+ */
+internal fun ByteArray.tarChecksumIsValid(): Boolean {
+    if (size < TarExtractor.BLOCK_SIZE) return false
+    val stored = tarOctal(CHECKSUM_OFFSET, CHECKSUM_LENGTH) ?: return false
+    var unsigned = 0
+    var signed = 0
+    for (index in 0 until TarExtractor.BLOCK_SIZE) {
+        val raw = this[index].toInt() and 0xFF
+        // The checksum field counted itself as spaces, because that is what it
+        // was when the writer added up the block.
+        val byte = if (index in CHECKSUM_OFFSET until CHECKSUM_OFFSET + CHECKSUM_LENGTH) 0x20 else raw
+        unsigned += byte
+        signed += if (byte >= 0x80) byte - 0x100 else byte
+    }
+    return stored == unsigned.toLong() || stored == signed.toLong()
+}
+
+/** Reads one octal tar field, or null when it is not octal at all. */
+private fun ByteArray.tarOctal(offset: Int, length: Int): Long? {
+    var result = 0L
+    var started = false
+    for (index in offset until offset + length) {
+        val digit = this[index]
+        if (digit == 0.toByte() || digit == 0x20.toByte()) {
+            if (started) break
+            continue
+        }
+        if (digit < 0x30.toByte() || digit > 0x37.toByte()) return null
+        started = true
+        result = (result * 8) + (digit - 0x30)
+    }
+    return result
+}
+
+private const val CHECKSUM_OFFSET = 148
+private const val CHECKSUM_LENGTH = 8
