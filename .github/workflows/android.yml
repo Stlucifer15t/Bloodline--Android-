@@ -18,11 +18,7 @@ jobs:
     timeout-minutes: 45
 
     permissions:
-      # contents: write is here for exactly one thing: attaching the upstream
-      # package report to the commit as a comment. Nothing in this job pushes,
-      # tags or creates a release, and a report nobody can find is the reason
-      # the permission is being widened rather than the report being dropped.
-      contents: write
+      contents: read
       pull-requests: write
 
     steps:
@@ -130,7 +126,15 @@ jobs:
         # with a --tests filter, which replaces the results directory with a
         # single file.
         if: always()
-        run: python3 tools/test-summary.py app/build/test-summary.md | tee -a "$GITHUB_STEP_SUMMARY"
+        # The number is also emitted as an annotation. The summary and the log
+        # are both unreadable from outside the Actions UI, and a count that
+        # cannot be checked is a count that can be wrong without anyone
+        # noticing - which is exactly what happened: a stale number was read as
+        # current for an hour.
+        run: |
+          set -euo pipefail
+          python3 tools/test-summary.py app/build/test-summary.md | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 tools/test-annotation.py app/build/test-summary.md
 
       - name: Verify the upstream packages really download and unpack
         # The only step that fetches the actual Wine and WoW64 packages from
@@ -178,6 +182,10 @@ jobs:
           REPORT="app/build/upstream-packages.txt"
           if [ ! -s "$REPORT" ]; then
             echo "No upstream report was produced."
+            # Visible rather than silent: an empty report is a finding too, and
+            # a step that exits quietly here is how the last two attempts at
+            # publishing this looked like they were working.
+            echo "::warning title=Upstream package verification::no report was produced"
             exit 0
           fi
           {
@@ -198,17 +206,17 @@ jobs:
               cat app/build/test-summary.md
             } >> /tmp/upstream-comment.md
           fi
-          # On the run's own summary first, so it is there even if the API is
-          # unreachable.
+          # On the run's own summary, and as an annotation.
+          #
+          # The annotation is the channel that survives. The job summary is
+          # readable only in the Actions UI, the log host and the artifact host
+          # are unreachable from anywhere else, and a pull request comment
+          # needs a pull request that still exists - which is exactly how the
+          # last two attempts at publishing this went quiet while still
+          # reporting success. Annotations come back with `gh run view` and
+          # need no permission beyond running the job.
           cat /tmp/upstream-comment.md >> "$GITHUB_STEP_SUMMARY"
-
-          # Built as JSON rather than passed with -F body=@file: it says what
-          # is being sent, and jq is on every runner.
-          jq -n --rawfile body /tmp/upstream-comment.md '{body: $body}' \
-            > /tmp/upstream-comment.json
-          gh api -X POST \
-            "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
-            --input /tmp/upstream-comment.json
+          python3 tools/report-annotation.py "$REPORT"
 
           # And on the pull request too, when there is one to put it on.
           if [ -n "${{ github.event.pull_request.number }}" ]; then
