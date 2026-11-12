@@ -131,8 +131,11 @@ class RuntimeHostTest {
         val runtime = RuntimeHost(host()).apply { prepare(glesDevice) }
         val selection = runtime.selection()
 
-        assertEquals(GraphicsBackend.VIRGL_WINE_D3D, selection.graphics.backend)
-        assertTrue(selection.translator == CpuTranslator.BOX86 || !selection.translator.needs32BitUserland)
+        assertEquals(GraphicsBackend.GLES_WRAPPER_WINE_D3D, selection.graphics.backend)
+        assertTrue(
+            "The recommended translator must be able to host a 32-bit executable.",
+            selection.translator.canRun32Bit(),
+        )
     }
 
     // ------------------------------------------------------------- stopping

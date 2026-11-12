@@ -5,28 +5,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tests for the Wine prefix layout.
+ * Tests for the Wine prefix: where it lives, what shape it is, and which
+ * environment the game process sees.
  *
- * Two rules are being pinned down here, and both are about protecting the
- * user's game folder:
+ * Two rules are pinned down here. The first is unchanged from the original
+ * version of this file:
  *
- * 1. Everything the runtime writes lives under a directory the app owns, never
- *    beside the game files.
- * 2. The prefix is created for the architecture the *game* is, not the
- *    architecture the phone is. `Vampire.exe` is 32-bit, so the prefix has to be
- *    a 32-bit prefix even on a 64-bit-only device.
+ * 1. **Everything the runtime writes lives under a directory the app owns**,
+ *    never beside the game files. A prefix written into the user's game folder
+ *    would be a mess they did not ask for and cannot easily undo.
+ *
+ * The second rule replaced the first version's, and the replacement is the
+ * whole reason this file was rewritten:
+ *
+ * 2. **The prefix is 64-bit, and the game's 32-bit code runs through WoW64.**
+ *    The original asserted `WINEARCH=win32` on the reasoning that
+ *    `Vampire.exe` is a 32-bit binary, so the prefix must be 32-bit. That is
+ *    not how the runtimes that work do it: they build a 64-bit prefix and let
+ *    WoW64 host the 32-bit application inside it. The test now asserts that the
+ *    32-bit guest is hosted, rather than that the prefix is 32-bit.
  */
 class WineEnvironmentTest {
 
     private fun environment(
         executableName: String = "Vampire.exe",
-        architecture: WineArchitecture = WineArchitecture.WIN32,
-    ) = WineEnvironmentFactory.create(
+        flavour: WineFlavour = WineFlavour.WOW64_BOX64,
+    ) = WineEnvironment(
         runtimeRoot = "/data/data/com.bloodline.android/runtime",
+        flavour = flavour,
+        wineLoader = "/data/data/com.bloodline.android/runtime/wine/bin/wine",
         gameDirectory = "/storage/game",
-        wineLoader = "/data/app/lib/arm64/libwine.so",
         executableName = executableName,
-        architecture = architecture,
     )
 
     @Test
@@ -46,20 +55,72 @@ class WineEnvironmentTest {
         assertTrue(!environment.prefixDirectory.contains("storage/game"))
     }
 
+    // ------------------------------------------------------- the 32-bit guest
+
     @Test
-    fun `a 32-bit executable gets a 32-bit prefix`() {
-        // The game is 32-bit whatever the phone is.
+    fun `the prefix is 64-bit, because the game is hosted through WoW64`() {
+        // The correction. A 32-bit executable does not require a 32-bit prefix:
+        // WoW64 exists precisely so a 64-bit prefix can host one.
+        assertEquals("win64", environment().environment()["WINEARCH"])
+    }
+
+    @Test
+    fun `Wine is told which WoW64 layer to load`() {
+        // Without HODLL there is nothing to run the game's 32-bit code against.
+        assertEquals("wowbox64.dll", environment().environment()["HODLL"])
+    }
+
+    @Test
+    fun `each flavour names the WoW64 layer it uses`() {
+        assertEquals("wowbox64.dll", WineFlavour.WOW64_BOX64.wow64DllName)
+        assertEquals("libwow64fex.dll", WineFlavour.WOW64_FEX.wow64DllName)
+    }
+
+    @Test
+    fun `FEX runs without a separate emulator binary`() {
+        // FEX supplies both the translation and the WoW64 layer, so the launch
+        // command must not try to chain an emulator in front of Wine.
+        val environment = environment(flavour = WineFlavour.WOW64_FEX)
+
+        assertEquals(false, environment.flavour.needsEmulator)
+        assertEquals(
+            listOf("/data/data/com.bloodline.android/runtime/wine/bin/wine", "D:\\Vampire.exe"),
+            environment.launchCommand(emulatorBinary = null),
+        )
+    }
+
+    @Test
+    fun `Box64 is chained in front of Wine when it is needed`() {
         val environment = environment()
 
-        assertEquals("win32", environment.environment()["WINEARCH"])
+        assertTrue(environment.flavour.needsEmulator)
+        assertEquals(
+            listOf(
+                "/data/data/com.bloodline.android/runtime/box64/box64",
+                "/data/data/com.bloodline.android/runtime/wine/bin/wine",
+                "D:\\Vampire.exe",
+            ),
+            environment.launchCommand(
+                emulatorBinary = "/data/data/com.bloodline.android/runtime/box64/box64",
+            ),
+        )
     }
 
     @Test
-    fun `the architecture follows the executable, not the device`() {
-        assertEquals(WineArchitecture.WIN32, WineArchitecture.forExecutable(32))
-        assertEquals(WineArchitecture.WIN64, WineArchitecture.forExecutable(64))
-        assertEquals(null, WineArchitecture.forExecutable(16))
+    fun `a WoW64 flavour is the default`() {
+        assertEquals(WineFlavour.WOW64_BOX64, WineFlavour.DEFAULT)
+        assertTrue(WineFlavour.DEFAULT.isAvailable)
     }
+
+    @Test
+    fun `the legacy 32-bit prefix flavour is not offered until a package exists`() {
+        // Box86 remains a valid way to run 32-bit code, but nothing in the
+        // catalog supplies it, so it must not be presented as an option.
+        assertEquals("win32", WineFlavour.WIN32_BOX86.wineArch)
+        assertTrue(!WineFlavour.WIN32_BOX86.isAvailable)
+    }
+
+    // ------------------------------------------------------------- environment
 
     @Test
     fun `the executable is addressed the way Windows addresses it`() {
@@ -82,13 +143,18 @@ class WineEnvironmentTest {
     }
 
     @Test
-    fun `the launch command runs the loader with the Windows path`() {
-        val environment = environment()
-
-        assertEquals(
-            listOf("/data/app/lib/arm64/libwine.so", "D:\\Vampire.exe"),
-            environment.launchCommand(),
+    fun `the runtime paths are added on top of the fixed variables`() {
+        // Library paths depend on where the packages were unpacked, so they are
+        // set separately rather than baked into environment().
+        val variables = environment().withRuntimePaths(
+            wineBin = "/runtime/wine/bin",
+            libDirs = listOf("/runtime/box64", "/runtime/wowbox64"),
         )
+
+        assertEquals("/runtime/wine/bin:/runtime/box64/bin:/runtime/wowbox64/bin", variables["PATH"])
+        assertEquals("/runtime/box64:/runtime/wowbox64", variables["LD_LIBRARY_PATH"])
+        assertEquals("win64", variables["WINEARCH"])
+        assertEquals("wowbox64.dll", variables["HODLL"])
     }
 
     @Test

@@ -6,62 +6,90 @@ import com.bloodline.android.runtime.RuntimeCapabilities
 import com.bloodline.android.runtime.RuntimeModule
 
 /**
- * The ways 32-bit x86 instructions get executed on an ARM64 phone.
+ * How x86 instructions get executed, and how a 32-bit Windows application gets
+ * hosted.
  *
- * This is the layer the brief singles out, and for a good reason: `Vampire.exe`
- * is a **32-bit** Windows binary, so the obvious answer — Box64 — is not by
- * itself an answer. Three routes exist, and they differ in the dependency that
- * makes them fragile:
+ * This file was rewritten after the Milestone 3 investigation, and the change
+ * matters enough to state plainly:
  *
- * * **[BOX86]** — the established route. Box86 is itself a 32-bit ARM program,
- *   so it needs a 32-bit userland *and* a working 32-bit execution path. That
- *   second dependency is the risky one: 32-bit support is exactly what kernels
- *   are dropping, and exactly what `runtime_probe` measures on this device.
- * * **[BOX64_WOW64]** — Box64 built with its WOW64 option can host 32-bit
- *   Windows DLLs directly. Same job, no 32-bit userland needed.
- * * **[FEX_ARM64EC]** — FEX supports both 32- and 64-bit x86 and, in ARM64EC
- *   mode, plugs into Wine as a CPU module so Wine services the Windows system
- *   calls. No separate x86 rootfs at all.
+ * > **Box86 is not the answer, and it is no longer the recommendation.**
  *
- * Whichever is used, it runs *under* Wine, not instead of it. Nothing here
- * claims one is faster — that claim requires a measurement on the CK6.
+ * The earlier version preferred Box86 whenever the device could run 32-bit
+ * processes, on the reasoning that `Vampire.exe` is 32-bit so a 32-bit
+ * translator is the natural fit. Inspecting what the working Android runtimes
+ * actually ship showed the opposite: **none of them ships Box86.** They run
+ * 32-bit Windows applications through **WoW64 inside a 64-bit prefix** —
+ * WOWBox64 (Box64 built with WoW64 support) or FEX-Emu.
+ *
+ * That is better for our constraint, not worse. Box86 *is* a 32-bit ARM program,
+ * so it needs a 32-bit userland — the exact dependency this project had flagged
+ * as fragile, because 32-bit support is what kernels are dropping. The WoW64
+ * routes need no 32-bit userland at all.
+ *
+ * Box86 stays in the catalogue because it remains a legitimate way to run
+ * 32-bit code, and because being wrong about it once is a reason to keep the
+ * option visible rather than delete it.
  */
 enum class CpuTranslator(
     override val id: String,
     override val title: String,
     val summary: String,
 
+    /**
+     * How 32-bit Windows applications are hosted.
+     *
+     * `null` means this translator cannot host a 32-bit guest at all, which is
+     * what makes plain Box64 unsuitable on its own for `Vampire.exe`.
+     */
+    val wow64: WoW64Mode?,
+
     /** True when the route needs a 32-bit userland to be present. */
     val needs32BitUserland: Boolean,
 ) : RuntimeModule {
 
+    WOWBOX64(
+        id = "wowbox64",
+        title = "WOWBox64 (Box64 + WoW64)",
+        summary = "Box64 built with WoW64 support. Runs 32-bit Windows applications " +
+            "inside a 64-bit Wine prefix, which is how the Mali-focused Android " +
+            "runtimes run 32-bit games. Needs no 32-bit userland.",
+        wow64 = WoW64Mode.WOWBOX64,
+        needs32BitUserland = false,
+    ),
+
+    FEX(
+        id = "fex-wow64",
+        title = "FEX-Emu (WoW64)",
+        summary = "FEX-Emu supplying both instruction translation and the WoW64 layer. " +
+            "Handles 32- and 64-bit x86 and needs no separate emulator binary. The " +
+            "fallback when WOWBox64 misbehaves.",
+        wow64 = WoW64Mode.FEX,
+        needs32BitUserland = false,
+    ),
+
+    BOX64(
+        id = "box64",
+        title = "Box64 (64-bit only)",
+        summary = "Box64 without WoW64 support. Fast for 64-bit Windows programs, and " +
+            "useless for Vampire.exe on its own: the game is 32-bit.",
+        wow64 = null,
+        needs32BitUserland = false,
+    ),
+
     BOX86(
         id = "box86",
-        title = "Box86 (32-bit x86)",
-        summary = "The established route for 32-bit Windows games. Box86 is " +
-            "itself a 32-bit ARM program, so it needs a 32-bit userland and a " +
-            "kernel that still accepts 32-bit processes.",
+        title = "Box86 (32-bit x86, legacy)",
+        summary = "The route this project originally planned: a 32-bit translator in a " +
+            "32-bit Wine prefix. Box86 is itself a 32-bit ARM program, so it needs a " +
+            "32-bit userland that Android devices increasingly do not provide. No " +
+            "package in the catalog supplies it.",
+        wow64 = WoW64Mode.WIN32_PREFIX,
         needs32BitUserland = true,
     ),
-
-    BOX64_WOW64(
-        id = "box64-wow64",
-        title = "Box64 (WOW64 mode)",
-        summary = "Box64 built with its WOW64 option, hosting the game's " +
-            "32-bit Windows DLLs directly. Runs the same 32-bit code without " +
-            "needing a 32-bit userland.",
-        needs32BitUserland = false,
-    ),
-
-    FEX_ARM64EC(
-        id = "fex-arm64ec",
-        title = "FEX (ARM64EC module)",
-        summary = "FEX loaded into an ARM64 Wine as a CPU module, so Wine " +
-            "itself services the Windows system calls. Handles 32- and 64-bit " +
-            "x86 and needs no separate x86 rootfs.",
-        needs32BitUserland = false,
-    ),
     ;
+
+    /** Whether this translator can host our 32-bit executable. */
+    fun canRun32Bit(): Boolean = wow64 != null
 
     override fun requirements(capabilities: RuntimeCapabilities): List<Requirement> =
         buildList {
@@ -91,7 +119,14 @@ enum class CpuTranslator(
             }
             add(
                 Requirement(
-                    "$title shipped in the APK",
+                    "Can host a 32-bit Windows application",
+                    canRun32Bit(),
+                    measured = false,
+                ),
+            )
+            add(
+                Requirement(
+                    "$title package installed",
                     satisfied = false,
                     measured = false,
                 ),
@@ -114,22 +149,55 @@ enum class CpuTranslator(
     }
 
     companion object {
+
         val ENTRIES: List<CpuTranslator> get() = entries.toList()
 
         fun fromId(id: String): CpuTranslator? = entries.firstOrNull { it.id == id }
 
         /**
-         * The translator to prefer on this device.
+         * The translator to prefer.
          *
-         * Prefers a route that does **not** need a 32-bit userland when the
-         * device cannot provide one, because that dependency is the one most
-         * likely to disappear. When the device happily runs 32-bit code, Box86
-         * stays first: it is the best-exercised path for exactly this kind of
-         * 2004-era 32-bit game.
+         * WOWBox64, unless the device cannot run Box64 — the practical case being
+         * a device without the memory-map behaviour Box64 relies on, for which
+         * FEX is the safer choice. Box86 is **never** recommended: it is listed,
+         * selectable and documented, but the 32-bit-userland dependency makes it
+         * the worst default on any modern Android device.
          */
         fun recommendedFor(capabilities: RuntimeCapabilities): CpuTranslator =
-            entries.firstOrNull {
-                !it.needs32BitUserland || capabilities.canExecute32Bit
-            } ?: BOX86
+            when {
+                !capabilities.measured -> WOWBOX64
+                needsFex(capabilities) -> FEX
+                else -> WOWBOX64
+            }
+
+        /**
+         * True when Box64 is likely to struggle.
+         *
+         * Box64's 32-bit memory mapping is a known problem on Mali: the Mali
+         * builds set `BOX64_MMAP32=0` specifically because of it. Where the
+         * device cannot provide the 32-bit address space Box64 wants, FEX is
+         * the safer pick.
+         */
+        private fun needsFex(capabilities: RuntimeCapabilities): Boolean =
+            capabilities.hasMaliKbase && !capabilities.canExecute32Bit
+
+        /**
+         * Translators that can actually host the game, in preference order.
+         *
+         * Used by the launch gate so it can refuse a configuration that could
+         * never work — plain Box64 with a 32-bit executable, for instance.
+         */
+        fun capableOf32Bit(): List<CpuTranslator> = entries.filter { it.canRun32Bit() }
     }
+}
+
+/** How a 32-bit Windows guest is hosted. */
+enum class WoW64Mode(
+    /** The DLL Wine loads to host 32-bit guests, or empty for a 32-bit prefix. */
+    val dllName: String,
+    val description: String,
+) {
+    WOWBOX64("wowbox64.dll", "Box64's WoW64 layer inside a 64-bit prefix"),
+    FEX("libwow64fex.dll", "FEX-Emu's WoW64 layer inside a 64-bit prefix"),
+    WIN32_PREFIX("", "A 32-bit prefix; no WoW64 layer involved"),
 }

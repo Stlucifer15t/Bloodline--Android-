@@ -1,5 +1,7 @@
 package com.bloodline.android.runtime
 
+import com.bloodline.android.runtime.graphics.TextureCompatibility
+
 /**
  * The contract every piece of the compatibility runtime implements.
  *
@@ -103,6 +105,16 @@ data class RuntimeCapabilities(
     /** GL renderer string reported through EGL. */
     val glRenderer: String = "",
 
+    /**
+     * The `GL_EXTENSIONS` string reported through EGL.
+     *
+     * Read because it is the only trustworthy answer to a question this project
+     * cannot afford to guess at: whether the GPU can decode the compressed
+     * texture formats a 2004 PC game uses. Model names and spec sheets are not
+     * evidence; the extension string is.
+     */
+    val glExtensions: String = "",
+
     /** True when the reading came back at all, so "empty" and "not measured" differ. */
     val measured: Boolean = false,
 ) {
@@ -127,6 +139,19 @@ data class RuntimeCapabilities(
     val hasGles31: Boolean get() = glesMajorMinor?.let { (major, minor) ->
         major > 3 || (major == 3 && minor >= 1)
     } ?: false
+
+    /**
+     * How this GPU can be made to show a BCn (DXT) texture.
+     *
+     * Read from the extension string rather than assumed, because getting this
+     * wrong does not degrade the picture — it deletes it. See
+     * [TextureCompatibility] for why it matters to this game in particular.
+     */
+    val textureSupport: TextureCompatibility
+        get() = TextureCompatibility.detect(
+            glesMajor = glesMajorMinor?.first,
+            extensions = glExtensions,
+        )
 
     companion object {
         /** Everything unknown. Used before the probes have reported. */
