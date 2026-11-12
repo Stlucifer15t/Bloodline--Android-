@@ -1,7 +1,6 @@
 package com.bloodline.android.diagnostics
 
 import java.io.File
-import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -71,9 +70,9 @@ class ReportArchiveTest {
         val written = report(archive(), name = "summary.txt", logs = listOf(log))
 
         ZipFile(written.file).use { zip ->
-            val entry: ZipEntry? = zip.getEntry("logs/session.1.log")
+            val entry = zip.getEntry("logs/session.1.log")
             assertNotNull(entry)
-            assertEquals("line one\n", zip.getInputStream(entry).readBytes().decodeToString())
+            assertEquals("line one\n", zip.getInputStream(entry!!).readBytes().decodeToString())
         }
     }
 

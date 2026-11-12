@@ -763,7 +763,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             startActivity(Intent.createChooser(intent, getString(R.string.diagnostics_share)))
-        } catch (_: ActivityNotFoundException) {
+        } catch (ignored: ActivityNotFoundException) {
             showMessage(getString(R.string.diagnostics_no_app))
         }
     }

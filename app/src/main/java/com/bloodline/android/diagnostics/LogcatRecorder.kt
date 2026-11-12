@@ -77,7 +77,7 @@ class LogcatRecorder(
                         written += line.length + 1
                     }
                 }
-            } catch (_: IOException) {
+            } catch (ignored: IOException) {
                 // Capturing logs is best effort: a device that refuses logcat
                 // simply gets reports without them.
             } finally {

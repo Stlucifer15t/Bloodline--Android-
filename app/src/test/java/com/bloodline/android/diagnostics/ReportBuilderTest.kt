@@ -113,9 +113,9 @@ class ReportBuilderTest {
 
     @Test
     fun `durations are readable`() {
-        assertEquals("45s", ReportBuilder.formatDuration(45))
-        assertEquals("2m 5s", ReportBuilder.formatDuration(125))
-        assertEquals("1h 0m 3s", ReportBuilder.formatDuration(3603))
-        assertEquals("0s", ReportBuilder.formatDuration(-5))
+        assertEquals("45s", ReportBuilder.formatDuration(45L))
+        assertEquals("2m 5s", ReportBuilder.formatDuration(125L))
+        assertEquals("1h 0m 3s", ReportBuilder.formatDuration(3603L))
+        assertEquals("0s", ReportBuilder.formatDuration(-5L))
     }
 }

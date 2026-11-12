@@ -67,7 +67,7 @@ claiming otherwise would be a decorative switch.
 | --- | --- | --- | --- |
 | Renderer selection | WineD3D + VirGL (planned) / PanVK + DXVK (experimental) | ⏳ PENDING | Selection is stored and validated; nothing is loaded yet |
 | Texture / shadow / shader quality | — | ❌ UNSUPPORTED | WineD3D exposes no such runtime knobs. Will be revisited per backend |
-| GPU identification | read-only | ✅ WORKS | The native probe reports EGL/GL renderer, vendor and version — the data needed to judge Mali-G52 support |
+| GPU identification | read-only | ✅ WORKS | `GpuInfo` reads the GL renderer, vendor, GLSL and EGL version from an EGL context — the data needed to judge Mali-G52 support |
 
 **Renderer policy (as requested):** the existing path is kept as the reliable
 fallback. PanVK + DXVK is recorded as *experimental* and will only become
@@ -94,81 +94,112 @@ Nothing is replaced before that.
 | --- | --- | --- |
 | Game installation folder + status | ✅ WORKS | Pick, verify, persist; metadata cached for fast startup |
 | Runtime version | ✅ WORKS | Build/version + component statuses from the registry |
-| Selected renderer | ⏳ PENDING | Stored |
-| Cache management | ✅ WORKS | Clears caches; reports size before/after |
-| Log management | ✅ WORKS | Keeps/clears captured logs |
+| Selected renderer | ⏳ PENDING | Stored, shown under *Renderer & Graphics* with the reason it is disabled |
+| Cached scan data | ✅ WORKS | Settings → *Clear cached scan data* forgets the last verified result; *Re-scan for game files* forces a fresh scan |
+| Logs | ✅ WORKS | This app's logcat is captured continuously; the last four sessions go into a report. Not a setting: logs are an input to reports |
 | Diagnostics & crash reports | ✅ WORKS | Session detection, ZIP reports, share/delete (Phase 4) |
 
 ---
 
-## 3. Implementation plan
+## 3. Implementation status
 
-### Phase 3 — fix the two reported bugs (highest priority)
+### Phase 1 — audit (done)
+
+`docs/SETTINGS.md` itself is the deliverable: it records what existed before
+anything was built on top of it, so no setting is ever claimed to work without
+evidence.
+
+### Phase 2 — settings that work, stored honestly (done)
+
+- `SettingsStore` (SharedPreferences, with an in-memory implementation for unit
+  tests) and a typed `SettingsRepository` with safe defaults, clamping and
+  change listeners.
+- A **Settings** screen reachable from a *Settings* button under the launch
+  button, built from the launcher's own cards, drawables and typography.
+  Categories A–F, in that order.
+- Only ✅ settings are enabled. ⏳ settings are visible but dimmed, cannot be
+  clicked, and say what they are waiting for. ❌ items are shown as unsupported
+  rather than omitted, so the plan stays visible.
+- Applied immediately: immersive mode, orientation, keep-awake, window
+  brightness, the FPS overlay and master volume. UI scale recreates the
+  activity, because the scale is baked into the context.
+- The FPS overlay counts real `Choreographer` frames, so it shows the refresh
+  rate Android is actually delivering rather than a stored number.
+- Master volume drives the real Android `STREAM_MUSIC` volume, seeded from the
+  device the first time it is needed.
+
+### Phase 3 — the black screen and the slow reopen (done)
 
 **Black screen on import**
 
-1. Move all scanning off the main thread into a single-threaded background
-   executor (`GameInstallRepository`).
-2. Report **real** progress: stage (`Scanning → Verifying → Preparing`) plus the
-   number of directory entries actually examined. No invented percentages.
-3. Show a proper loading overlay (card + indeterminate bar + stage text) instead
-   of a frozen, black UI.
-4. Single-flight guard so a second import cannot start while one is running;
-   the button is disabled during the operation.
-5. Errors are shown with the reason (unreadable folder, missing `Vampire.exe`,
-   missing `Vampire/` data folder, access revoked).
+1. All scanning moved off the main thread into `GameInstallRepository`, which
+   owns a single-threaded background executor.
+2. Real progress: the current stage (scanning folders → checking required
+   files) plus the number of directory entries actually examined. No
+   percentages, because the total is unknowable until the walk ends.
+3. A progress bar with the stage text and the running count, instead of a
+   frozen black UI.
+4. Single-flight guard plus a disabled import button, so a second import cannot
+   start while one is running.
+5. Errors are shown with the reason: access revoked, unreadable folder, or no
+   `Vampire.exe`.
+6. After a fresh scan, the card shows *Preparing runtime…* while the bundled
+   native probe is still running, and hides it when the probe reports back.
 
-**Slow startup**
+**Slow reopen**
 
-1. Persist validated installation metadata (kind, reference, display path, data
-   folder present, entries examined, validation timestamp) in SharedPreferences.
-2. On startup, render instantly from that cache — no I/O beyond one preference
-   read.
-3. Re-validate in the background only when: there is no cache, the cache is
-   stale (>24 h), the folder URI changed, or the user asks for a refresh.
-4. `onResume` no longer triggers a rescan; it only re-renders.
-5. The native probe (already background) is skipped on repeat starts when its
-   result is still cached for this process/app version.
-6. No game file is ever written, moved or deleted by any of this.
+1. `InstallMetadata` remembers the location, whether the data folder is there,
+   how much work the scan took, and when it was verified.
+2. Startup renders straight from that cache.
+3. The cache is reused while it is younger than 24 h, was produced by this
+   build, and came from the same search folders.
+4. A scan that found nothing is only repeated when it was cheap (< 2,000
+   entries); repeating an expensive one would bring the slow reopen back.
+5. `onResume` no longer rescans. Settings offers *Re-scan for game files* and
+   *Clear cached scan data* for when a rescan is genuinely wanted.
+6. The native probe result is cached per app version and API level: the answer
+   is a property of the device, not of the session.
+7. No game file is written, moved or deleted by any of this.
 
-### Phase 2 — settings that work, stored honestly
+### Phase 4 — automatic crash reports (done)
 
-- `SettingsStore` (SharedPreferences, with an in-memory implementation for
-  unit tests) + typed `SettingsRepository` with defaults and change listeners.
-- A **Settings** screen reachable from a gear button in the launcher header,
-  built from the same cards, drawables and typography as the launcher.
-- Only ✅ settings are enabled. ⏳ settings are visible, disabled, and labelled
-  with what they are waiting for. ❌ settings are shown as unsupported rather
-  than omitted, so the plan stays visible.
-- Applied immediately where safe (orientation, immersive, keep-awake,
-  brightness, FPS overlay); UI scale recreates the activity.
+- `SessionTracker`: a marker file is written when a session starts and removed
+  only when the app is closed deliberately. Android runs nothing at all when a
+  process is killed, so a surviving marker is the only reliable evidence of an
+  unclean exit. Recreating the Activity (rotation, theme change) is not a new
+  session, so it never produces a report.
+- Classification: **crash** (the app was in front), **background stop**
+  (Android reclaimed a backgrounded process — explicitly *not* called a crash),
+  or **unclean exit** when there is no better answer.
+- `LogcatRecorder` captures this app's own log continuously. It has to: since
+  Android 7 an app can only read its own log lines, and a dead process cannot
+  be asked for anything afterwards. The last four sessions are kept.
+- `DeviceInfo` records hardware, Android version, ABIs, memory and screen. The
+  GPU is read from an EGL context on a background thread, which is the only way
+  Android exposes it.
+- `ReportArchive` writes a dated ZIP to
+  `Android/data/com.bloodline.android/files/diagnostics/reports/` containing
+  `summary.txt`, `device.txt`, `runtime.txt`, `settings.txt`, `install.txt`,
+  `session.txt`, `native-probe.txt` and `logs/`. The newest ten are kept.
+- The launcher card shows the latest report with what it was, when it was made
+  and how big it is, plus **Generate**, **Save** (SAF), **Share**
+  (FileProvider + `ACTION_SEND`) and **Delete**.
+- Privacy: only this app's own output. The game folder path is deliberately
+  left out of reports because a path can contain the owner's name.
 
-### Phase 4 — diagnostics
+### Phase 5 — verification (yours, on the TECNO CK6)
 
-- `SessionTracker`: marker file written at process start, removed on a clean
-  finish. Surviving marker ⇒ previous session did not end cleanly.
-- Classification: **crash** (recorded uncaught exception + stack trace),
-  **killed while backgrounded** (process died after `onStop`), or
-  **unclean exit**. A deliberate close removes the marker, so no false reports.
-- `DiagnosticsCollector`: logcat of this app's own process (the only logs
-  Android lets an app read), device/ABI/SDK info, GPU info from the native
-  probe, settings snapshot, runtime component statuses, session record.
-- `ReportArchive`: ZIP in `Android/data/<package>/files/diagnostics/` with a
-  readable `summary.txt` plus per-topic files. Keeps the newest 10, deletes the
-  rest, and can be deleted on demand.
-- Launcher card listing the latest report (date + classification) with
-  **Generate**, **Share** (FileProvider + `ACTION_SEND`) and **Delete**.
-- Privacy: only this app's own data — no contacts, no personal files, no
-  credentials.
-
-### Phase 5 — verification
-
-| Check | How |
+| Check | How to confirm |
 | --- | --- |
-| APK builds | GitHub Actions on every push/PR (no local Gradle on the phone) |
-| Settings persistence, cache logic, session tracking, report naming/rotation | JVM unit tests |
-| Everything marked ✅ | Requires on-device confirmation on the TECNO CK6 |
-
-I have no device or emulator in this environment, so the ✅ items are verified
-by code and unit tests only — the on-device pass is yours. Each ✅ item is
-listed with how to confirm it in §2 above.
+| APK builds | GitHub Actions on every push; download `bloodlines-debug-apk` |
+| No unexplained black screen | Import a folder with the game in it; the card must show the stage and a climbing entry count the whole time |
+| Installation metadata persists | Close and reopen: the status is shown instantly, and the caption says when it was verified |
+| No needless rescan | Reopen and watch: no progress bar appears on an ordinary start |
+| Settings persist | Change immersive / orientation / UI scale / volume, restart, confirm they held |
+| FPS limits affect gameplay | ⏳ Cannot be checked until the runtime exists; the FPS overlay is checkable now |
+| Resolution scaling changes render resolution | ⏳ Same |
+| Renderer selection and safe fallback | ⏳ Same; the safe renderer is the default and the Vulkan path is marked experimental |
+| HUD functional | ❌ No HUD exists yet |
+| Crash reports after an unexpected exit | Force-stop the app from developer options, reopen: a report is written automatically |
+| Reports savable and shareable | *Save* writes the ZIP where you choose; *Share* opens Android's share sheet |
+| Normal shutdown produces no report | Back out of the app, reopen: the card still says *No reports yet* |
