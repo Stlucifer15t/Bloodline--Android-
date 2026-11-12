@@ -204,6 +204,9 @@ jobs:
                 awk '/^\* What went wrong:/{flag=1} flag' "$LOG" | head -n 40
                 echo "..."
                 grep -m 8 "Caused by:" "$LOG"
+                echo "--- compile errors ---"
+                grep -E "^e: " "$LOG" | head -n 25
+                grep -E "error:|Unresolved reference" "$LOG" | head -n 15
                 echo "--- failing tests ---"
                 grep -E "FAILED|tests completed" "$LOG" | head -n 30
                 echo '```'
