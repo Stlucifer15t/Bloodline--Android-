@@ -72,22 +72,37 @@ jobs:
         # so a change that does not bump it cannot be installed over the
         # previous APK. This fails the build rather than shipping an APK the
         # user has to uninstall first.
+        #
+        # What it compares against depends on the event, and getting that wrong
+        # is what turned main red. On a push, the commit being built *is* the
+        # new tip of main, so fetching main and diffing it against HEAD
+        # compares the commit with itself and can only ever report "not
+        # bumped". The meaningful question — "was this bigger than what it
+        # replaces?" — is answered by the previous tip of main.
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "${{ github.event.pull_request.base.ref || 'main' }}" --depth=1
+          if [ -n "${{ github.event.pull_request.base.ref }}" ]; then
+            BASE_LABEL="${{ github.event.pull_request.base.ref }}"
+            git fetch --no-tags origin "$BASE_LABEL" --depth=1
+            BASE_REV="FETCH_HEAD"
+          else
+            BASE_LABEL="the previous tip of main"
+            git fetch --no-tags origin main --depth=2
+            BASE_REV="FETCH_HEAD^1"
+          fi
           code() {
             git show "$1:gradle/libs.versions.toml" \
               | grep -E '^versionCode = ' | head -n1 | grep -oE '[0-9]+'
           }
           HEAD_CODE="$(code HEAD)"
-          BASE_CODE="$(code FETCH_HEAD)"
-          echo "versionCode: base=$BASE_CODE head=$HEAD_CODE"
+          BASE_CODE="$(code "$BASE_REV")"
+          echo "versionCode: base($BASE_LABEL)=$BASE_CODE head=$HEAD_CODE"
           if [ -z "$HEAD_CODE" ] || [ -z "$BASE_CODE" ]; then
             echo "::error::Could not read versionCode from gradle/libs.versions.toml"
             exit 1
           fi
           if [ "$HEAD_CODE" -le "$BASE_CODE" ]; then
-            echo "::error::versionCode is $HEAD_CODE but ${{ github.event.pull_request.base.ref || 'main' }} is already at $BASE_CODE."
+            echo "::error::versionCode is $HEAD_CODE but $BASE_LABEL is already at $BASE_CODE."
             echo "::error::Bump versionCode (and versionName) in gradle/libs.versions.toml so this APK installs as an update."
             exit 1
           fi
