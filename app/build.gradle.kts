@@ -187,7 +187,25 @@ dependencies {
     // Unpacking the runtime packages downloaded at first run, which arrive as
     // tar.xz or tar.zst archives behind a private ".wcp" extension.
     implementation(libs.xz)
-    implementation(libs.zstd.jni)
+
+    // The @aar is the whole point, and leaving it off is what broke the first
+    // real install.
+    //
+    // zstd-jni embeds its native library, and the plain jar embeds the desktop
+    // builds only. Android's copy lives in a separate archive, and without it
+    // the first package that is Zstandard-compressed fails with:
+    //
+    //     dlopen failed: library "libzstd-jni-1.5.6-3.so" not found
+    //
+    // Nothing in a unit test can catch that: the tests run on the JVM, where
+    // the jar's desktop binary loads perfectly. It is a packaging fault, and
+    // the only way to check it is to look inside the built APK, which CI now
+    // does.
+    implementation("com.github.luben:zstd-jni:${libs.versions.zstdJni.get()}@aar")
+
+    // The tests run on the JVM, where the desktop binaries are the ones that
+    // load, so they want the jar rather than the Android archive.
+    testImplementation(libs.zstd.jni)
 
     testImplementation(libs.junit)
 }
