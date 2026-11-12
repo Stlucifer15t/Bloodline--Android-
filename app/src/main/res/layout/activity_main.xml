@@ -626,7 +626,7 @@
             android:text="@string/launch_locked_no_runtime" />
 
         <!--
-            Bringing Wine up runs `wine --version`, `wineboot` and a 32-bit
+            Bringing Wine up runs the version check, wineboot and a 32-bit
             program, and their timeouts alone add up to more than five minutes.
             Without this the Launch button greys out and the screen says nothing
             at all for that whole time, which is indistinguishable from a button
