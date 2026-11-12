@@ -23,13 +23,19 @@ import com.bloodline.android.databinding.ActivityMainBinding
 import com.bloodline.android.databinding.ViewConfigRowBinding
 import com.bloodline.android.databinding.ViewStatusRowBinding
 import com.bloodline.android.game.GameInstall
+import com.bloodline.android.game.GameInstallRepository
 import com.bloodline.android.game.GameInstallScanner
+import com.bloodline.android.game.InstallScanReport
 import com.bloodline.android.game.LocationKind
+import com.bloodline.android.game.ScanProgress
+import com.bloodline.android.game.ScanSource
+import com.bloodline.android.game.ScanStage
 import com.bloodline.android.runtime.BlockReason
 import com.bloodline.android.runtime.ComponentIds
 import com.bloodline.android.runtime.IntegrationStatus
 import com.bloodline.android.runtime.LaunchReadiness
 import com.bloodline.android.runtime.LaunchState
+import com.bloodline.android.runtime.NativeProbeCache
 import com.bloodline.android.runtime.NativeProbe
 import com.bloodline.android.runtime.RuntimeComponent
 import com.bloodline.android.runtime.RuntimeRegistry
@@ -40,7 +46,12 @@ import com.bloodline.android.settings.SettingsRepository
 import com.bloodline.android.settings.UiScaleApplier
 import com.bloodline.android.storage.DocumentFolder
 import com.bloodline.android.storage.GameFolderStore
+import com.bloodline.android.storage.SharedPreferencesInstallMetadataStore
 import com.bloodline.android.storage.StorageLocations
+import java.text.DateFormat
+import java.util.Date
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * The launcher screen.
@@ -55,6 +66,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var gameFolderStore: GameFolderStore
     private lateinit var settings: SettingsRepository
+    private lateinit var installRepository: GameInstallRepository
+
+    /** Background thread for one-off work that must never block the UI. */
+    private val background: ExecutorService = Executors.newSingleThreadExecutor()
 
     private var install: GameInstall? = null
 
@@ -64,17 +79,34 @@ class MainActivity : AppCompatActivity() {
         fpsOverlay?.text = getString(R.string.fps_overlay_prefix, framesPerSecond.toInt())
     }
 
-    /** Result of the bundled native probe, and the status it implies. */
+    /**
+     * Result of the bundled native probe, and the status it implies.
+     *
+     * Loaded from the cache when the device has already been checked, so a
+     * start does not pay for work whose answer cannot have changed.
+     */
     private var nativeProbeResult: NativeProbe.Result? = null
     private var nativeHostingStatus: IntegrationStatus = IntegrationStatus.NOT_INTEGRATED
-
-    /** Built on demand so it always reflects the currently selected folder. */
-    private val scanner: GameInstallScanner
-        get() = GameInstallScanner(StorageLocations.searchRoots(this, gameFolderStore))
 
     private val folderPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri -> if (uri != null) onFolderPicked(uri) }
+
+    private val settingsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val extras = result.data?.extras ?: return@registerForActivityResult
+
+        if (extras.getBoolean(SettingsActivity.EXTRA_CLEAR_CACHE, false)) {
+            installRepository.clearCache()
+        }
+        if (extras.getBoolean(SettingsActivity.EXTRA_CLEAR_CACHE, false) ||
+            extras.getBoolean(SettingsActivity.EXTRA_RESCAN, false)
+        ) {
+            ensureInstall(force = true)
+        }
+    }
 
     override fun attachBaseContext(newBase: Context) {
         // The interface scale has to be applied before any view exists.
@@ -90,16 +122,30 @@ class MainActivity : AppCompatActivity() {
 
         gameFolderStore = GameFolderStore(this)
         settings = SettingsProvider.get(this)
+        installRepository = GameInstallRepository(
+            roots = { StorageLocations.searchRoots(this, gameFolderStore) },
+            metadataStore = SharedPreferencesInstallMetadataStore(this),
+            appVersion = BuildConfig.VERSION_NAME,
+        )
 
         bindStaticContent()
         bindRuntimeRows()
-        refreshGameStatus()
-        runNativeProbe()
+
+        // Renders the remembered result straight away, and only scans when that
+        // result is missing or stale. This is what makes reopening fast.
+        ensureInstall()
+
+        val cachedProbe = NativeProbeCache(this).load(BuildConfig.VERSION_NAME)
+        if (cachedProbe != null) {
+            onNativeProbeFinished(cachedProbe)
+        } else {
+            runNativeProbe()
+        }
 
         binding.importButton.setOnClickListener { folderPicker.launch(null) }
         binding.launchButton.setOnClickListener { onLaunchClicked() }
         binding.settingsButton.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+            settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
         }
     }
 
@@ -110,8 +156,9 @@ class MainActivity : AppCompatActivity() {
         SettingsApplier.apply(this, settings)
         updateFpsOverlay()
 
-        // The user may have copied files over while the app was backgrounded.
-        refreshGameStatus()
+        // Deliberately no rescan here: the cached result is still valid, and
+        // re-walking the game folder on every resume is what made reopening the
+        // app slow. Use "Re-scan for game files" in Settings when needed.
     }
 
     override fun onPause() {
@@ -230,8 +277,56 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------ game status
 
-    private fun refreshGameStatus() {
-        val found = scanner.findInstall()
+    /**
+     * Makes sure the launcher has an up to date view of the game files.
+     *
+     * When the last verified scan is still fresh this costs nothing at all: the
+     * remembered result is rendered immediately. Otherwise the scan runs on a
+     * background thread and reports real progress, because walking a game
+     * folder over the Storage Access Framework costs thousands of binder calls
+     * and used to freeze the launcher completely.
+     */
+    private fun ensureInstall(force: Boolean = false) {
+        installRepository.ensureInstall(
+            force = force,
+            onProgress = { progress -> runOnUiThread { onScanProgress(progress) } },
+            onResult = { report -> runOnUiThread { onScanFinished(report) } },
+        )
+        setScanningUi(installRepository.isScanning)
+    }
+
+    private fun setScanningUi(active: Boolean) {
+        binding.importButton.isEnabled = !active
+        binding.importProgress.isVisible = active
+        if (active) {
+            binding.importProgressText.text = getString(R.string.scan_stage_scanning)
+        }
+    }
+
+    private fun onScanProgress(progress: ScanProgress) {
+        binding.importProgress.isVisible = true
+        binding.importProgressText.text = buildString {
+            appendLine(stageLabel(progress.stage))
+            append(
+                getString(
+                    R.string.scan_counts,
+                    progress.entriesExamined,
+                    progress.foldersExamined,
+                )
+            )
+        }
+    }
+
+    private fun stageLabel(stage: ScanStage): String = getString(
+        when (stage) {
+            ScanStage.SCANNING_FOLDERS -> R.string.scan_stage_scanning
+            ScanStage.CHECKING_REQUIRED_FILES -> R.string.scan_stage_checking
+            ScanStage.FINISHED -> R.string.scan_stage_finishing
+        }
+    )
+
+    private fun onScanFinished(report: InstallScanReport) {
+        val found = report.install
         install = found
 
         val status = when {
@@ -247,15 +342,19 @@ class MainActivity : AppCompatActivity() {
                 else -> R.string.install_incomplete
             }
         )
-        binding.installStatus.rowDetail.text = getString(
-            when {
-                found == null -> R.string.install_detail_not_found
-                !found.isComplete -> R.string.install_detail_incomplete
-                found.location.kind == LocationKind.EXTERNAL_FOLDER ->
-                    R.string.install_detail_found_external
-                else -> R.string.install_detail_found
-            }
-        )
+        binding.installStatus.rowDetail.text = when {
+            report.error != null -> getString(
+                R.string.scan_failed,
+                report.error.message ?: report.error.javaClass.simpleName,
+            )
+
+            found == null -> getString(R.string.install_detail_not_found)
+            !found.isComplete -> getString(R.string.install_detail_incomplete)
+            found.location.kind == LocationKind.EXTERNAL_FOLDER ->
+                getString(R.string.install_detail_found_external)
+
+            else -> getString(R.string.install_detail_found)
+        }
         applyStatus(binding.installStatus, status)
 
         // Only show the resolved location; when nothing was found the detail
@@ -266,6 +365,18 @@ class MainActivity : AppCompatActivity() {
             binding.installNote.text = location
         }
 
+        // Say where the result came from, so a cached answer is never mistaken
+        // for a scan that just happened.
+        val fromCache = report.source == ScanSource.CACHE && report.scannedAtMillis > 0
+        binding.installVerified.isVisible = fromCache
+        if (fromCache) {
+            binding.installVerified.text = getString(
+                R.string.install_verified_at,
+                formatTimestamp(report.scannedAtMillis),
+                report.entriesExamined,
+            )
+        }
+
         binding.importButton.text = getString(
             if (gameFolderStore.load() != null) {
                 R.string.import_change_folder
@@ -274,8 +385,20 @@ class MainActivity : AppCompatActivity() {
             }
         )
 
+        setScanningUi(false)
+
+        // Preparing the runtime is real work that may still be in flight: the
+        // bundled native probe has to report back before anything can launch.
+        if (report.source == ScanSource.FRESH && nativeProbeResult == null) {
+            binding.importProgress.isVisible = true
+            binding.importProgressText.text = getString(R.string.scan_stage_preparing)
+        }
+
         updateLaunchState()
     }
+
+    private fun formatTimestamp(millis: Long): String =
+        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))
 
     private fun updateLaunchState() {
         val state = LaunchReadiness.evaluate(install, runtimeComponents())
@@ -301,6 +424,13 @@ class MainActivity : AppCompatActivity() {
      * it already is, which saves several gigabytes of duplicated data.
      */
     private fun onFolderPicked(uri: Uri) {
+        // One import at a time: a second scan of the same tree would double the
+        // cost and can only disagree with the first.
+        if (installRepository.isScanning) {
+            showMessage(getString(R.string.import_already_running))
+            return
+        }
+
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
 
         val accessGranted = runCatching {
@@ -312,22 +442,45 @@ class MainActivity : AppCompatActivity() {
         }
 
         val folder = runCatching { DocumentFolder.fromTree(this, uri) }.getOrNull()
-        val found = folder?.let { runCatching { scannerFor(it).findInstall() }.getOrNull() }
+        if (folder == null) {
+            releaseFolderPermission(uri, flags)
+            showInvalidFolderDialog()
+            return
+        }
 
+        // Checking the picked folder is the same expensive walk as a full scan,
+        // so it happens off the main thread too. Doing it inline is exactly what
+        // used to freeze the launcher on a black screen.
+        setScanningUi(true)
+        background.execute {
+            val found = runCatching {
+                GameInstallScanner(listOf(folder)).findInstall { progress ->
+                    runOnUiThread { onScanProgress(progress) }
+                }
+            }.getOrNull()
+            runOnUiThread { onPickedFolderChecked(uri, found, flags) }
+        }
+    }
+
+    private fun onPickedFolderChecked(uri: Uri, found: GameInstall?, flags: Int) {
         if (found == null) {
             // Nothing usable in there: forget the dead end rather than storing
             // a folder that does not contain the game.
-            runCatching { contentResolver.releasePersistableUriPermission(uri, flags) }
+            releaseFolderPermission(uri, flags)
+            setScanningUi(false)
             showInvalidFolderDialog()
             return
         }
 
         gameFolderStore.save(uri)
-        refreshGameStatus()
+        // The search roots changed, so the remembered result no longer applies.
+        ensureInstall(force = true)
         showMessage(getString(R.string.import_linked, found.location.displayPath))
     }
 
-    private fun scannerFor(folder: DocumentFolder) = GameInstallScanner(listOf(folder))
+    private fun releaseFolderPermission(uri: Uri, flags: Int) {
+        runCatching { contentResolver.releasePersistableUriPermission(uri, flags) }
+    }
 
     private fun showInvalidFolderDialog() {
         AlertDialog.Builder(this)
@@ -365,7 +518,10 @@ class MainActivity : AppCompatActivity() {
     private fun runNativeProbe() {
         Thread {
             val result = NativeProbe.run(this, cacheDir)
-            runOnUiThread { onNativeProbeFinished(result) }
+            runOnUiThread {
+                NativeProbeCache(this).save(BuildConfig.VERSION_NAME, result)
+                onNativeProbeFinished(result)
+            }
         }.start()
     }
 
@@ -381,6 +537,11 @@ class MainActivity : AppCompatActivity() {
 
         bindRuntimeRows()
         updateLaunchState()
+
+        // The runtime is ready to report on, so the preparing stage is over.
+        if (!installRepository.isScanning) {
+            binding.importProgress.isVisible = false
+        }
     }
 
     private fun showNativeProbeOutput() {

@@ -1,6 +1,7 @@
 package com.bloodline.android.ui
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -10,12 +11,17 @@ import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.bloodline.android.BuildConfig
 import com.bloodline.android.R
 import com.bloodline.android.databinding.ActivitySettingsBinding
 import com.bloodline.android.databinding.ViewSettingOptionBinding
 import com.bloodline.android.databinding.ViewSettingSliderBinding
 import com.bloodline.android.databinding.ViewSettingSwitchBinding
 import com.bloodline.android.databinding.ViewSettingsSectionBinding
+import com.bloodline.android.game.GameInstallRepository
+import com.bloodline.android.storage.GameFolderStore
+import com.bloodline.android.storage.SharedPreferencesInstallMetadataStore
+import com.bloodline.android.storage.StorageLocations
 import com.bloodline.android.settings.AudioBackend
 import com.bloodline.android.settings.AudioVolumeController
 import com.bloodline.android.settings.AspectRatioMode
@@ -49,6 +55,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var settings: SettingsRepository
     private lateinit var audio: AudioVolumeController
     private lateinit var gameFolderStore: GameFolderStore
+    private lateinit var installRepository: GameInstallRepository
 
     override fun attachBaseContext(newBase: Context) {
         // The interface scale has to be applied before any view exists.
@@ -65,6 +72,11 @@ class SettingsActivity : AppCompatActivity() {
         settings = SettingsProvider.get(this)
         audio = AudioVolumeController(this)
         gameFolderStore = GameFolderStore(this)
+        installRepository = GameInstallRepository(
+            roots = { StorageLocations.searchRoots(this, gameFolderStore) },
+            metadataStore = SharedPreferencesInstallMetadataStore(this),
+            appVersion = BuildConfig.VERSION_NAME,
+        )
 
         buildSections()
 
@@ -335,11 +347,45 @@ class SettingsActivity : AppCompatActivity() {
                     ?: getString(R.string.setting_value_not_set),
             )
             readOnlyRow(
+                title = getString(R.string.setting_install_status),
+                detail = getString(R.string.setting_install_status_detail),
+                value = installStatusLabel(),
+            )
+            actionRow(
+                title = getString(R.string.setting_rescan),
+                detail = getString(R.string.setting_rescan_detail),
+            ) {
+                // The launcher owns the scan, so ask it to run one and leave.
+                setResult(RESULT_OK, Intent().putExtra(EXTRA_RESCAN, true))
+                finish()
+            }
+            actionRow(
+                title = getString(R.string.setting_clear_cache),
+                detail = getString(R.string.setting_clear_cache_detail),
+            ) {
+                installRepository.clearCache()
+                setResult(RESULT_OK, Intent().putExtra(EXTRA_CLEAR_CACHE, true))
+                finish()
+            }
+            readOnlyRow(
                 title = getString(R.string.setting_runtime_version),
                 detail = getString(R.string.runtime_overall_detail),
                 value = getString(R.string.status_not_integrated),
             )
         }
+    }
+
+    /** What the last verified scan concluded, without running a new one. */
+    private fun installStatusLabel(): String {
+        val metadata = installRepository.cached() ?: return getString(R.string.install_status_unknown)
+        val install = metadata.install() ?: return getString(R.string.install_status_not_found)
+
+        return getString(
+            when {
+                install.isComplete -> R.string.install_status_found
+                else -> R.string.install_status_incomplete
+            }
+        )
     }
 
     /** Turns a Storage Access Framework tree URI into something readable. */
@@ -429,6 +475,23 @@ class SettingsActivity : AppCompatActivity() {
             container.addView(row.root)
         }
 
+        /** A row that runs an action when tapped. */
+        fun actionRow(
+            title: String,
+            detail: String,
+            enabled: Boolean = true,
+            action: () -> Unit,
+        ) {
+            val row = ViewSettingOptionBinding.inflate(inflater, container, false)
+            row.settingTitle.text = title
+            row.settingDetail.text = detail
+            row.settingValue.text = ""
+
+            applyEnabled(row.root, enabled)
+            if (enabled) row.root.setOnClickListener { action() }
+            container.addView(row.root)
+        }
+
         /** A row that reports a fact and cannot be changed. */
         fun readOnlyRow(title: String, detail: String, value: String) {
             optionRow(
@@ -504,7 +567,13 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private companion object {
-        val BRIGHTNESS_STEPS = listOf(25, 50, 75, 100)
+    companion object {
+        /** Ask the launcher to verify the game files again. */
+        const val EXTRA_RESCAN = "extra_rescan"
+
+        /** Ask the launcher to forget the cached result and scan again. */
+        const val EXTRA_CLEAR_CACHE = "extra_clear_cache"
+
+        private val BRIGHTNESS_STEPS = listOf(25, 50, 75, 100)
     }
 }

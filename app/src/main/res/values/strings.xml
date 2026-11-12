@@ -77,7 +77,17 @@
 
     <string name="open_settings">Settings</string>
 
-    <!-- Import flow -->
+    <!-- Import flow: real stages, real counts, no invented percentages -->
+    <string name="scan_stage_scanning">Scanning folders…</string>
+    <string name="scan_stage_checking">Checking required files…</string>
+    <string name="scan_stage_preparing">Preparing runtime…</string>
+    <string name="scan_stage_finishing">Finishing…</string>
+    <string name="scan_counts">%1$,d entries examined · %2$,d folders</string>
+    <string name="scan_failed">The scan could not finish: %1$s</string>
+    <string name="install_verified_at">Verified %1$s · %2$,d entries examined</string>
+    <string name="install_scanning_hint">Reading your game folder in the background. The launcher stays responsive while this runs.</string>
+    <string name="import_already_running">A scan is already running</string>
+
 
     <!-- Footer -->
     <string name="footer_version">Milestone 1 · foundation build %1$s</string>
@@ -161,11 +171,17 @@
     <string name="setting_install_folder">Game folder</string>
     <string name="setting_install_folder_detail">The folder the game was found in. Nothing is copied: the launcher reads your own files where they already are.</string>
     <string name="setting_install_status">Installation status</string>
+    <string name="setting_install_status_detail">What the last verified scan concluded. The launcher reuses this instead of walking the game folder on every start.</string>
     <string name="setting_rescan">Re-scan for game files</string>
     <string name="setting_rescan_detail">Forces a fresh scan instead of reusing the cached result.</string>
     <string name="setting_clear_cache">Clear cached scan data</string>
-    <string name="setting_clear_cache_detail">Remembers nothing about your game files, so the next start scans again from scratch.</string>
+    <string name="setting_clear_cache_detail">Forgets what the last scan proved, so the next start scans again from scratch. Your game files are never touched.</string>
     <string name="setting_clear_cache_done">Cached scan data cleared</string>
+    <string name="setting_rescan_done">Scanning your game folder…</string>
+    <string name="install_status_found">Game files detected</string>
+    <string name="install_status_incomplete">Partial install — data folder missing</string>
+    <string name="install_status_not_found">No game files found</string>
+    <string name="install_status_unknown">Not verified yet</string>
     <string name="setting_runtime_version">Runtime version</string>
     <string name="setting_value_not_set">Not set</string>
     <string name="setting_value_unavailable">Unavailable</string>
