@@ -115,6 +115,12 @@ class ArchiveExtractor {
     internal fun safeDestination(target: File, entryName: String): File? {
         if (entryName.isBlank()) return null
 
+        // Reject absolute names outright. `File(parent, child)` would otherwise
+        // quietly treat "/system/bin/sh" as relative to the target, which is
+        // safe — but relying on that is one refactor away from being unsafe,
+        // and a hostile archive should be refused on its face.
+        if (entryName.startsWith("/") || entryName.startsWith("\\")) return null
+
         val root = target.canonicalFile
         val destination = File(root, entryName).canonicalFile
 

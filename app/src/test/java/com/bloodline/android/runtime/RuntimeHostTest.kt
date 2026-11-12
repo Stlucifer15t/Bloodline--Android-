@@ -186,7 +186,11 @@ class RuntimeHostTest {
         assertEquals("not present", section["Wine version"])
         assertEquals("validated", section["Install"])
         assertEquals("Mali-G52 MC2", section["GPU renderer"])
-        assertTrue(section["Graphics backend"]!!.contains("VirGL"))
+        assertTrue(section["Graphics backend"]!!.contains("GLES"))
+        assertTrue(
+            "The experimental Vulkan backend must never appear by default.",
+            !section["Graphics backend"]!!.contains("PanVK"),
+        )
     }
 
     @Test

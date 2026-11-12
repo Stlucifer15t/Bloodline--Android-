@@ -81,13 +81,34 @@ class CpuTranslatorTest {
     }
 
     @Test
-    fun `falls back to FEX on a Mali device that cannot map 32-bit memory`() {
-        // Box64's 32-bit address-space handling is a known problem on Mali, and
-        // the Mali builds turn it off explicitly.
+    fun `the Mali accommodation does not silently swap the translator`() {
+        // The Mali builds keep Box64 and turn off its 32-bit memory mapping;
+        // they do not switch to FEX. Whatever we do about Mali must therefore
+        // be a Box64 setting, not a different recommendation.
         val device = maliDevice.copy(canExecute32Bit = false)
-        val recommended = CpuTranslator.recommendedFor(device)
 
-        assertEquals(CpuTranslator.FEX, recommended)
+        assertEquals(CpuTranslator.WOWBOX64, CpuTranslator.recommendedFor(device))
+    }
+
+    @Test
+    fun `the fallback after a WOWBox64 failure is FEX, and back again`() {
+        // Two independent WoW64 implementations is the point of keeping the
+        // emulator replaceable: if one cannot host the game, try the other.
+        assertEquals(CpuTranslator.FEX, CpuTranslator.fallbackFor(CpuTranslator.WOWBOX64))
+        assertEquals(CpuTranslator.WOWBOX64, CpuTranslator.fallbackFor(CpuTranslator.FEX))
+    }
+
+    @Test
+    fun `the fallback never lands on a route that cannot host the game`() {
+        // Plain Box64 cannot run a 32-bit executable, and Box86 would need a
+        // 32-bit userland, so neither may be offered as a recovery.
+        CpuTranslator.entries.forEach { translator ->
+            val fallback = CpuTranslator.fallbackFor(translator)
+            assertTrue(
+                "${translator.id} falls back to ${fallback?.id}, which cannot host the game.",
+                fallback == null || fallback.canRun32Bit(),
+            )
+        }
     }
 
     // --------------------------------------------------------- 32-bit hosting
@@ -142,7 +163,18 @@ class CpuTranslatorTest {
         val descriptions = requirements.map { it.description }
         assertTrue(descriptions.any { it.contains("32-bit ABI") })
         assertTrue(descriptions.any { it.contains("32-bit processes") })
-        assertTrue(requirements.none { it.satisfied })
+    }
+
+    @Test
+    fun `Box86 is blocked by the userland it needs, not by its ability to host the game`() {
+        // Box86 can host a 32-bit guest; what it cannot do on a modern device
+        // is find a 32-bit userland to run in. The report has to say which.
+        val requirements = CpuTranslator.BOX86.requirements(RuntimeCapabilities(measured = true))
+        val unmet = requirements.filter { !it.satisfied }.map { it.description }
+
+        assertTrue(unmet.any { it.contains("32-bit ABI") })
+        assertTrue(unmet.any { it.contains("32-bit processes") })
+        assertTrue(unmet.none { it.contains("Can host") })
     }
 
     @Test

@@ -155,31 +155,40 @@ enum class CpuTranslator(
         fun fromId(id: String): CpuTranslator? = entries.firstOrNull { it.id == id }
 
         /**
-         * The translator to prefer.
+         * The translator to prefer: always WOWBox64.
          *
-         * WOWBox64, unless the device cannot run Box64 — the practical case being
-         * a device without the memory-map behaviour Box64 relies on, for which
-         * FEX is the safer choice. Box86 is **never** recommended: it is listed,
-         * selectable and documented, but the 32-bit-userland dependency makes it
-         * the worst default on any modern Android device.
+         * Deliberately unconditional. An earlier draft switched to FEX on a
+         * Mali device that could not execute 32-bit processes, on the theory
+         * that Box64's 32-bit address-space handling is the problem the Mali
+         * builds work around. Reading what those builds actually do showed
+         * otherwise: they keep Box64 and set `BOX64_MMAP32=0`. The
+         * accommodation is a Box64 setting, not a different translator.
+         *
+         * Guessing a translator from a device measurement would also be the
+         * wrong shape of decision: nothing measured on a phone can tell us
+         * which emulator handles a given game better. FEX is offered as an
+         * explicit alternative and as a retry after a WOWBox64 failure, which
+         * is a decision made from evidence rather than from a spec sheet.
+         *
+         * Box86 is **never** recommended. It remains listed and selectable,
+         * but its 32-bit-userland dependency makes it the worst default on any
+         * modern Android device.
          */
-        fun recommendedFor(capabilities: RuntimeCapabilities): CpuTranslator =
-            when {
-                !capabilities.measured -> WOWBOX64
-                needsFex(capabilities) -> FEX
-                else -> WOWBOX64
-            }
+        fun recommendedFor(capabilities: RuntimeCapabilities): CpuTranslator = WOWBOX64
 
         /**
-         * True when Box64 is likely to struggle.
+         * What to try when [translator] has failed, or null when there is
+         * nothing left.
          *
-         * Box64's 32-bit memory mapping is a known problem on Mali: the Mali
-         * builds set `BOX64_MMAP32=0` specifically because of it. Where the
-         * device cannot provide the 32-bit address space Box64 wants, FEX is
-         * the safer pick.
+         * The other WoW64 route, and only that: swapping a working WoW64 layer
+         * for Box86 would trade a working configuration for one that needs a
+         * 32-bit userland.
          */
-        private fun needsFex(capabilities: RuntimeCapabilities): Boolean =
-            capabilities.hasMaliKbase && !capabilities.canExecute32Bit
+        fun fallbackFor(translator: CpuTranslator): CpuTranslator? = when (translator) {
+            WOWBOX64 -> FEX
+            FEX -> WOWBOX64
+            BOX64, BOX86 -> WOWBOX64
+        }
 
         /**
          * Translators that can actually host the game, in preference order.
