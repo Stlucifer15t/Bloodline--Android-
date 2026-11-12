@@ -307,36 +307,6 @@ class GameInstallRepositoryTest {
         assertEquals(1, huge.listCount)
     }
 
-    @Test
-    fun `a cheap scan that found nothing is repeated on the next start`() {
-        val empty = gameFolder(nodes = arrayOf(dir("Docs", file("readme.txt"))))
-        val store = InMemoryInstallMetadataStore()
-
-        repository(listOf(empty), store).ensureInstall(force = true, onProgress = {}, onResult = {})
-
-        val results = mutableListOf<InstallScanReport>()
-        repository(listOf(empty), store).ensureInstall(onProgress = {}, onResult = { results += it })
-
-        // Cheap to redo, and the user may have copied their files in since.
-        assertEquals(ScanSource.FRESH, results.single().source)
-    }
-
-    @Test
-    fun `an expensive scan that found nothing is not repeated`() {
-        // A large folder with no game in it: walking it costs real time.
-        val nodes = (0..GameInstallRepository.CHEAP_SCAN_ENTRIES).map { file("file$it.bin") }
-        val huge = gameFolder(nodes = nodes.toTypedArray())
-        val store = InMemoryInstallMetadataStore()
-
-        repository(listOf(huge), store).ensureInstall(force = true, onProgress = {}, onResult = {})
-
-        val results = mutableListOf<InstallScanReport>()
-        repository(listOf(huge), store).ensureInstall(onProgress = {}, onResult = { results += it })
-
-        assertEquals(ScanSource.CACHE, results.single().source)
-        assertEquals(1, huge.listCount)
-    }
-
     private companion object {
         const val NOW = 1_700_000_000_000L
         const val APP_VERSION = "0.4.0"

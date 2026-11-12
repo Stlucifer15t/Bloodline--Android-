@@ -80,7 +80,7 @@ class GameInstallRepository(
     ): Boolean {
         if (!force && isCachedFresh()) {
             val report = cachedReport()
-            if (report != null && report.install != null) {
+            if (report != null && report.isWorthReusing()) {
                 onResult(report)
                 return true
             }
@@ -147,11 +147,27 @@ class GameInstallRepository(
     private fun fingerprint(): String =
         roots().joinToString(FINGERPRINT_SEPARATOR) { it.location.reference }
 
+    /**
+     * A remembered result is reused when it holds an install, or when proving
+     * that there was none was expensive.
+     *
+     * The second half matters: a scan that walked a large folder and found
+     * nothing must not be repeated on every start, because that is the slow
+     * reopen this class was written to fix. A cheap scan over near-empty app
+     * storage, on the other hand, costs so little that it is worth repeating in
+     * case the user has since copied their files in.
+     */
+    private fun InstallScanReport.isWorthReusing(): Boolean =
+        install != null || entriesExamined > CHEAP_SCAN_ENTRIES
+
     companion object {
         /** A remembered result younger than this is reused instead of rescanned. */
         const val STALE_AFTER_MILLIS = 24L * 60L * 60L * 1000L
 
-        const val FINGERPRINT_SEPARATOR = ""
+        /** A scan that examined no more than this counts as cheap to repeat. */
+        const val CHEAP_SCAN_ENTRIES = 2_000
+
+        const val FINGERPRINT_SEPARATOR = "||"
 
         private fun ScanStage.progress(entries: Int, folders: Int) =
             ScanProgress(this, entries, folders)
