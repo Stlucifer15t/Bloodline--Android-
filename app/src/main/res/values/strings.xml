@@ -4,12 +4,14 @@
 
     <!-- Header -->
     <string name="brand_title">BLOODLINES</string>
+    <string name="brand_emblem_description">Bloodlines emblem</string>
     <string name="brand_subtitle">Vampire: The Masquerade</string>
     <string name="brand_stage">Android Compatibility Wrapper</string>
 
     <!-- Section titles -->
     <string name="section_game_installation">Game Installation</string>
     <string name="section_runtime">Compatibility Runtime</string>
+    <string name="section_display">Display</string>
     <string name="section_audio">Audio</string>
     <string name="section_diagnostics">Diagnostics</string>
 
