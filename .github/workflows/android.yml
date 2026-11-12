@@ -125,6 +125,35 @@ jobs:
           ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest \
             --tests "*UpstreamPackageVerificationTest*" 2>&1 | tee gradle-upstream.log
 
+      - name: Publish the upstream package report
+        # The report is written to a file because Gradle hides test output, and
+        # posted as a comment because this is the one channel a maintainer can
+        # read without downloading an artifact. Manual dispatch only: it is the
+        # run that also fetches Wine, and a comment on every pull request would
+        # be noise.
+        if: github.event_name == 'workflow_dispatch' && always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPORT="app/build/upstream-packages.txt"
+          if [ ! -s "$REPORT" ]; then
+            echo "No upstream report was produced."
+            exit 0
+          fi
+          {
+            echo "### Upstream package verification"
+            echo
+            echo "Fetched from the pinned release URLs and installed through the real"
+            echo "acquisition path. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo '```'
+            cat "$REPORT"
+            echo '```'
+          } > /tmp/upstream-comment.md
+          gh pr comment 8 --body-file /tmp/upstream-comment.md
+
       - name: Run Android lint
         id: lint
         run: |

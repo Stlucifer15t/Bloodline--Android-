@@ -143,6 +143,23 @@ android {
     lint {
         // A launcher that ships no translations yet should not fail the build.
         disable += setOf("MissingTranslation", "ExtraTranslation")
+
+        // targetSdk is 28 on purpose, and lint is right to object, so it is
+        // answered here rather than silenced silently.
+        //
+        // The check exists for the Play Store, which requires a recent
+        // targetSdk. This app cannot be on the Play Store at any targetSdk:
+        // since Android 10 the platform mounts an app's data directory
+        // noexec unless it targets below 29, and this runtime has to exec Wine
+        // from that directory — as does Wine itself for wineserver. The
+        // reference implementation makes the same choice for the same reason.
+        //
+        // Full reasoning is on `targetSdk` in gradle/libs.versions.toml. It is
+        // disabled with the reason recorded here, rather than worked around,
+        // so that the constraint stays visible in the build instead of living
+        // in whatever happens to be set that week.
+        disable += "ExpiredTargetSdkVersion"
+
         // Never block a debug build on release-only checks.
         checkReleaseBuilds = false
         abortOnError = true

@@ -79,6 +79,7 @@ class UpstreamPackageVerificationTest {
         }
 
         println(report)
+        writeReport(report.toString())
         assertEquals("every pinned package should install:\n$report", 0, failures)
     }
 
@@ -111,6 +112,7 @@ class UpstreamPackageVerificationTest {
         }
 
         println(report)
+        writeReport(report.toString())
         assertTrue("the Wine package should contain a loader:\n$report", loader != null)
     }
 
@@ -132,6 +134,7 @@ class UpstreamPackageVerificationTest {
             report.append("dll is        : ${InstallationValidator.readPeHeader(dll.inputStream()).describe()}\n")
         }
         println(report)
+        writeReport(report.toString())
 
         assertTrue(
             "the WoW64 package should contain ${WineFlavour.WOW64_BOX64.wow64DllName}:\n$report",
@@ -172,6 +175,13 @@ class UpstreamPackageVerificationTest {
 
     /** Best-effort archive for a checksum: the staging file if it survived. */
     private fun archiveOf(directory: File): File = directory
+
+    /** Writes [text] where CI can pick it up, since stdout is not captured. */
+    private fun writeReport(text: String) {
+        val out = File("build/upstream-packages.txt")
+        out.parentFile?.mkdirs()
+        out.appendText(text)
+    }
 
     private fun sha256Of(file: File): String {
         if (!file.isFile) return "(not a file: ${file.name})"
