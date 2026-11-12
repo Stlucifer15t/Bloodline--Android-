@@ -2,6 +2,7 @@ package com.bloodline.android.runtime.packaging
 
 import com.bloodline.android.runtime.WineFlavour
 import com.bloodline.android.runtime.audio.AudioConfiguration
+import com.bloodline.android.runtime.native.ElfInspector
 import java.io.File
 
 /**
@@ -88,6 +89,57 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
     fun alsaPlugin(flavour: WineFlavour = WineFlavour.DEFAULT): File? =
         libDirs(flavour).firstNotNullOfOrNull { it.find(AudioConfiguration.PLUGIN_LIBRARY) }
 
+    /**
+     * The Wine build's `windows` directory, where Wine keeps its own Windows
+     * system files.
+     *
+     * Searched for, because where a package puts it is not something we are
+     * told: a Wine built for Android may carry it at the root, under
+     * `share/wine`, or nowhere at all if the build was stripped.
+     */
+    fun windowsDirectory(flavour: WineFlavour = WineFlavour.DEFAULT): File? =
+        wineRoot(flavour)?.let { root ->
+            NAMES_WINDOWS.firstNotNullOfOrNull { root.resolve(it).takeIf { dir -> dir.isDirectory } }
+        }
+
+    /**
+     * A Windows program shipped inside the Wine build itself.
+     *
+     * These are real Windows executables, built by Wine and distributed under
+     * its licence, which makes them the honest answer to "can this runtime run
+     * a Windows program at all": no third-party download, no question of
+     * redistribution, and no doubt about what the file is.
+     *
+     * @param prefer32Bit look under `syswow64` first. WoW64 keeps the 32-bit
+     *        Windows system files there, so that is where a 32-bit guest
+     *        binary lives — and a 32-bit guest is what this whole runtime
+     *        exists to run.
+     * @return the executable, or null when the build does not carry one.
+     */
+    fun windowsExecutable(
+        name: String,
+        flavour: WineFlavour = WineFlavour.DEFAULT,
+        prefer32Bit: Boolean = true,
+    ): File? {
+        val windows = windowsDirectory(flavour) ?: return null
+        val order = if (prefer32Bit) listOf("syswow64", "system32") else listOf("system32", "syswow64")
+        return order.firstNotNullOfOrNull { directory ->
+            File(windows, directory).takeIf { it.isDirectory }?.find(name)
+        }
+    }
+
+    /**
+     * What the Wine loader actually is, read from its ELF header.
+     *
+     * Result of a lesson learned the hard way elsewhere in this project: a
+     * binary that is present and executable is not necessarily a binary that
+     * will run. An x86_64 build on an ARM64 device, or one linked against
+     * glibc on a device with no glibc, unpacks perfectly and then fails with
+     * a message that names the wrong thing.
+     */
+    fun inspectWine(flavour: WineFlavour = WineFlavour.DEFAULT): ElfInspector.Result? =
+        wineLoader(flavour)?.let { ElfInspector.inspect(it) }
+
     /** The standalone Box64 binary, needed only by the x86_64 Wine flavour. */
     fun emulatorBinary(): File? = store.packageDir(RuntimePackageCatalog.BOX64_BIONIC)
         .let { root -> NAMES_EMULATOR.firstNotNullOfOrNull { root.find(it) } }
@@ -142,6 +194,9 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
         val NAMES_WINE_LIB = listOf("lib", "lib64", "lib/wine", "lib64/wine")
 
         val NAMES_EMULATOR = listOf("box64")
+
+        /** Where a Wine build keeps its Windows system files. */
+        val NAMES_WINDOWS = listOf("share/wine/windows", "windows", "lib/wine/windows")
 
         /**
          * Deep enough for `lib/wine/x86_64-windows/...`, shallow enough that a

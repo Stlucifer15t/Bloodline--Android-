@@ -31,7 +31,25 @@ import java.util.ArrayDeque
  *    directory. Saying "No such file or directory" for either sends the
  *    investigation to the wrong place entirely.
  */
-class ProcessRunner {
+/**
+ * Runs one command and reports what happened.
+ *
+ * Split out from [ProcessRunner] so that the code which *decides* what to run
+ * can be tested without executing it. Wine's initialisation is a sequence of
+ * commands whose order and arguments matter, and none of that should be
+ * unverifiable until a device is available.
+ */
+interface CommandRunner {
+    fun run(request: ProcessRunner.Request, onLine: (String) -> Unit = {}): ProcessRunner.Outcome
+}
+
+/**
+ * [CommandRunner] backed by a real [Process].
+ *
+ * See the notes on deadlock, bounded output, timeouts and error translation
+ * below: they are the substance of this class, not decoration.
+ */
+class ProcessRunner : CommandRunner {
 
     /** What to run. */
     data class Request(
@@ -86,7 +104,7 @@ class ProcessRunner {
      * @param onLine called with each output line as it arrives, so a caller can
      *               stream progress without holding the whole thing.
      */
-    fun run(request: Request, onLine: (String) -> Unit = {}): Outcome {
+    override fun run(request: Request, onLine: (String) -> Unit): Outcome {
         val process = try {
             start(request)
         } catch (error: IOException) {
