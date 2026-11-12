@@ -332,24 +332,28 @@ by **acquiring** them — see §10.
 To be read alongside the final report. Nothing here is claimed as working
 because it compiles.
 
-| Layer | Implemented | Built | Initialised | Verified on hardware |
+| Layer | Implemented | Built | Executed here | Verified on hardware |
 | --- | --- | --- | --- | --- |
-| Module structure, state machine | ✅ | ✅ | n/a | n/a (pure Kotlin, unit tested) |
-| PE-header install validation | ✅ | ✅ | n/a | ⏳ Needs the CK6 |
-| Graphics capability probe | ✅ | ✅ | ⏳ | ⏳ Needs the CK6 |
-| Process manager probe | ✅ | ✅ | ⏳ | ⏳ Needs the CK6 |
-| Package acquisition and unpacking | ✅ | ✅ | ⏳ | ⏳ |
-| Wine environment and WoW64 wiring | ✅ | ✅ | ⏳ | ⏳ |
-| Graphics configuration | ✅ | ✅ | ⏳ | ⏳ |
-| Audio configuration | ✅ | ✅ | ⏳ | ⏳ |
-| Launch plan assembly | ✅ | ✅ | ⏳ | ⏳ |
-| Game process monitoring | ✅ | ✅ | ⏳ | ⏳ |
-| glibc userland / PRoot | ➖ | ➖ | ➖ | ➖ Not needed: Wine is Bionic |
+| Module structure, state machine | ✅ | ✅ | ✅ unit tests | n/a |
+| PE-header install validation | ✅ | ✅ | ✅ unit tests | ⏳ Needs the CK6 |
+| Package acquisition (download, resume, verify) | ✅ | ✅ | ✅ **real downloads, in CI** | ⏳ |
+| Archive handling (zip, tar, xz, zst, gz) | ✅ | ✅ | ✅ **real upstream packages** | ⏳ |
+| Executable permissions, path traversal | ✅ | ✅ | ✅ unit tests | ⏳ |
+| ELF validation of the Wine binary | ✅ | ✅ | ✅ **on the real downloaded binary** | ⏳ |
+| Process execution, exit codes, timeouts | ✅ | ✅ | ✅ **real processes, in tests** | ⏳ |
+| Wine initialisation sequence | ✅ | ✅ | ⏳ staged and asserted, never against Wine | ❌ |
+| Prefix creation | ✅ | ✅ | ❌ | ❌ |
+| WoW64 hosting a 32-bit program | ✅ | ✅ | ❌ | ❌ |
+| Graphics initialisation | ✅ config | ✅ | ❌ | ❌ |
+| Audio output | ⬜ config only | ✅ | ❌ | ❌ |
 | Launching the game | ✅ code path | ✅ | ❌ | ❌ |
+| Bloodlines | — | — | — | ❌ |
 
-**"Built" means it compiles and its unit tests pass. It does not mean a process
-was started, and it certainly does not mean the game rendered a frame.** No
-device testing has taken place at any point in this project.
+**"Built" means it compiles and its unit tests pass. It does not mean the game
+ran.** The rows marked "executed here" were genuinely exercised — real bytes
+downloaded, real archives unpacked, real processes started — but not one of
+them involved Wine running, because there is no device here and no ARM64
+machine to run it on.
 
 ---
 
@@ -431,6 +435,24 @@ the device. Three states are kept distinct because a user can act on all three:
 * **Ready** — the packages are installed and their files resolve.
 
 The Launch button opens only in the third case.
+
+### What a real package turned out to contain
+
+CI fetches the pinned packages and reports what it found. This is observation,
+replacing inference:
+
+| Observation | Why it mattered |
+| --- | --- |
+| Wine downloads in 20 s; 2210 files | The pipeline is not theoretical |
+| Its loader is 64-bit ARM, linked against `/system/bin/linker64` | Confirms a Bionic build, which is what decides whether it can run on Android at all |
+| `bin/wine` exists, and so does `lib/wine/aarch64-unix/wine` | The loader had to prefer `bin/wine`; a walk found the other one first |
+| There is **no `windows` directory** | Every path that assumed one was wrong |
+| 32-bit Windows files are at `lib/wine/i386-windows` | Where `cmd.exe` lives — the 32-bit program the WoW64 stage runs |
+| `cmd.exe` there is a PE 32-bit x86 Windows console program | Exactly what is needed to prove the 32-bit path |
+| WOWBox64 holds `system32/wowbox64.dll`, a PE 64-bit ARM DLL | Confirms what `HODLL` names |
+| The package contains no ALSA plugin | The audio null-device fallback is not a stopgap; there is nothing to route to yet |
+
+Three inferred paths were wrong and are now corrected against measurement.
 
 ### Still unverified
 
