@@ -193,6 +193,15 @@ class WineEnvironmentTest {
         // Whether the WoW64 layer was found is the question behind most of
         // the 32-bit failures, so DLL loading is on too.
         assertTrue(channels.toString(), channels.contains("trace+loaddll"))
+
+        // The module channel is a firehose and it must stay off. It was on
+        // once, and the first real log proved what that costs: 1975 of 2055
+        // captured lines were 'module' mapping PE sections, and not one seh
+        // or err line survived to be read. Verbose is not the same as useful.
+        assertFalse(
+            channels.toString(),
+            channels.any { it.startsWith("trace+module") || it.startsWith("module") },
+        )
     }
 
     @Test

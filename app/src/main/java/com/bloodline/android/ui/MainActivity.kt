@@ -204,10 +204,29 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         runtimeOutput.append(line).append('\n')
     }
 
+    /**
+     * What the game itself printed, and nothing else.
+     *
+     * Everything Wine says still goes to [runtimeOutput]. This one is separate
+     * because the prefix talks far more than the game does: the first log off
+     * a real device was 2055 lines of `wineboot` and not one line from the
+     * game, because the buffer had already been spent before the game started.
+     */
+    private val gameOutput = StringBuffer()
+
+    private fun recordGameOutput(line: String) {
+        if (gameOutput.length >= RUNTIME_OUTPUT_LIMIT) return
+        gameOutput.append(line).append('\n')
+    }
+
     private val runtimeHost by lazy {
         RuntimeHost(
             host = this,
-            manager = RuntimeProviders.manager(this, onOutput = ::recordRuntimeOutput),
+            manager = RuntimeProviders.manager(
+                this,
+                onOutput = ::recordRuntimeOutput,
+                onGameOutput = ::recordGameOutput,
+            ),
         )
     }
 
@@ -502,7 +521,12 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         // stage that stopped it — and putting those under one heading is how
         // a probe's crash gets mistaken for the game's.
         if (gameRan) {
-            val printed = runtimeOutput.toString().trim()
+            // The game's own buffer first. It is the only place the game's
+            // words can survive wineboot; falling back to everything is right
+            // only when the game said nothing at all.
+            val printed = gameOutput.toString().trim().ifBlank {
+                runtimeOutput.toString().trim()
+            }
             if (printed.isNotBlank()) {
                 appendLine()
                 appendLine(getString(R.string.launch_failure_game_output_heading))
@@ -1415,6 +1439,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         // evidence about what it does this time.
         launchFailure = null
         runtimeOutput.setLength(0)
+        gameOutput.setLength(0)
         launchExecutor.execute {
             val phase = try {
                 runtimeHost.launch()

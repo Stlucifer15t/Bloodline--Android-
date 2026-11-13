@@ -67,6 +67,7 @@ object RuntimeProviders {
         context: Context,
         configuration: RuntimeConfiguration = RuntimeConfiguration(),
         onOutput: (String) -> Unit = {},
+        onGameOutput: (String) -> Unit = {},
     ): RuntimeManager = RuntimeManager(
         configuration = configuration,
         provider = packaged(context),
@@ -74,5 +75,6 @@ object RuntimeProviders {
         initialiser = initialiser(context),
         runner = processRunner(),
         onOutput = onOutput,
+        onGameOutput = onGameOutput,
     )
 }

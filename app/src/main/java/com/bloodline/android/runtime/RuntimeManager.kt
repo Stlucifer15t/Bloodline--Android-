@@ -64,6 +64,20 @@ class RuntimeManager(
 
     /** Called with each line the guest prints, for the diagnostics log. */
     private val onOutput: (String) -> Unit = {},
+
+    /**
+     * Called with each line the **game** prints, kept apart from [onOutput].
+     *
+     * Measured, not guessed. The first log off a real device held 2055 lines
+     * and every one of them came from `wineboot` during prefix creation —
+     * `wineboot.exe`, `explorer.exe`, `iexplore.exe`, `rundll32.exe`. Nothing
+     * the game said survived to the end of the buffer, because the buffer had
+     * already been spent by the prefix before the game existed.
+     *
+     * Keeping two streams is what makes the tail meaningful: the prefix's
+     * output is read when a *stage* fails, the game's when the *game* fails.
+     */
+    private val onGameOutput: (String) -> Unit = {},
 ) {
 
     /**
@@ -310,7 +324,13 @@ class RuntimeManager(
                 environment = lastPlan?.environment.orEmpty(),
                 workingDirectory = lastPlan?.workingDirectory?.let { java.io.File(it) },
             ),
-            onLine = onOutput,
+            // Two streams from here on: everything still goes to the
+            // diagnostics log, and the game's own words go somewhere they
+            // cannot be drowned out by what the prefix already printed.
+            onLine = { line ->
+                onOutput(line)
+                onGameOutput(line)
+            },
             onExit = { outcome ->
                 val result = when (outcome) {
                     is ProcessRunner.Outcome.Exited -> processManager.onExit(outcome.exitCode)

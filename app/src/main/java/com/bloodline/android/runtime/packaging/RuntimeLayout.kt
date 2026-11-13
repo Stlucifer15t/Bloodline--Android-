@@ -82,6 +82,27 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
 
         return store.packageDir(RuntimePackageCatalog.WOWBOX64).find(name)
             ?: store.packageDir(RuntimePackageCatalog.FEX).find(name)
+            // Last, not first, because a separate emulator package is the
+            // arrangement we ask for. But a Wine build is allowed to ship its
+            // own host DLL, and refusing to look is how a runtime ends up
+            // setting HODLL to a name that exists nowhere on the device.
+            ?: wineRoot(flavour)?.find(name)
+    }
+
+    /**
+     * The WoW64 DLL as Wine will find it: inside the prefix's `system32`.
+     *
+     * This is the question the copy in [RuntimeLauncher.installWow64Layer] is
+     * meant to answer, and it is asked here as a separate fact because the
+     * copy runs *before* the prefix exists. A DLL that was copied into a
+     * directory that wineboot later rebuilt is a DLL Wine cannot load, and
+     * the difference between the two is exactly the kind of thing a report
+     * has to be able to show.
+     */
+    fun wow64DllInPrefix(flavour: WineFlavour): File? {
+        val name = flavour.wow64DllName
+        if (name.isEmpty()) return null
+        return File(wow64TargetDirectory(), name).takeIf { it.isFile }
     }
 
     /**

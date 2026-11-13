@@ -3,6 +3,7 @@ package com.bloodline.android.runtime.packaging
 import com.bloodline.android.runtime.WineFlavour
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -109,6 +110,22 @@ class RuntimeLayoutTest {
 
         assertNull(layout.wow64Dll(WineFlavour.X86_64_BOX64))
         assertTrue(layout.isComplete(WineFlavour.X86_64_BOX64))
+    }
+
+    @Test
+    fun `the WoW64 DLL is only reported as in the prefix once it is there`() {
+        // The copy runs before the prefix exists, so "we copied it" and "Wine
+        // can find it" are different claims. Only the second one matters, and
+        // a report that conflated them would send someone looking in the wrong
+        // place for a crash that is really a missing host DLL.
+        val layout = RuntimeLayout(filled())
+
+        assertNull(layout.wow64DllInPrefix(WineFlavour.WOW64_BOX64))
+
+        layout.wow64TargetDirectory().mkdirs()
+        java.io.File(layout.wow64TargetDirectory(), "wowbox64.dll").writeBytes(byteArrayOf(0x4d, 0x5a))
+
+        assertNotNull(layout.wow64DllInPrefix(WineFlavour.WOW64_BOX64))
     }
 
     @Test

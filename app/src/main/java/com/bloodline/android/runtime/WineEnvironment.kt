@@ -150,16 +150,22 @@ data class WineEnvironment(
          * already suppressed the one thing that could say why.
          *
          * Errors and warnings are cheap. `seh` is what reports an unhandled
-         * exception, so it is the channel the crash arrives on. `module` and
-         * `loaddll` say whether the WoW64 layer and the guest's own DLLs were
-         * found, which is the question behind most 32-bit failures.
+         * exception, so it is the channel the crash arrives on. `loaddll` says
+         * whether the WoW64 layer and the guest's own DLLs were found, which
+         * is the question behind most 32-bit failures.
          *
-         * The firehose (`trace+all`) is left off on purpose. Every line is
-         * kept anyway — bounded to the last few hundred by the process runner
-         * and to 256 KB by the report — so the volume is managed where it can
-         * be measured rather than by making Wine mute.
+         * `trace+module` is deliberately **not** in here, and it used to be.
+         * That was a mistake, and the first real log proved it: of 2055 lines
+         * captured from a device, 1975 were `module` — one line per PE section
+         * of every DLL mapped — and not one `seh` or `err:` line survived.
+         * Naming a channel "the firehose" and then switching it on is how a
+         * buffer fills with noise while the answer scrolls off the end.
+         *
+         * The volume is managed where it can be measured: the runner keeps the
+         * last few hundred lines, the report caps at 256 KB, and the game's
+         * output is kept apart from the prefix's (see RuntimeManager).
          */
-        const val DEFAULT_WINE_DEBUG = "err+all,warn+all,fixme-all,trace+seh,trace+loaddll,trace+module"
+        const val DEFAULT_WINE_DEBUG = "err+all,warn+all,fixme-all,trace+seh,trace+loaddll"
 
         /** Everything the runtime owns, relative to [runtimeRoot]. */
         val ownedDirectories: List<String> get() = listOf("prefix", "tmp", "logs")

@@ -335,6 +335,14 @@ class WineInitialiser(
 
         val architecture = describeWindowsProgram(candidate)
 
+        // Where the 32-bit support is supposed to come from, stated as a fact
+        // in the same breath as the crash. A tombstone from a real device showed
+        // a null dereference inside ntdll.so with not one frame of the WoW64
+        // host DLL in it — which is what "Wine was told to load something that
+        // was not there" looks like. Naming whether it is there turns that from
+        // a guess into a reading.
+        val hostInPrefix = layout.wow64DllInPrefix(flavour)
+
         val result = run(
             Stage.WOW64,
             listOf(loader.absolutePath, candidate.absolutePath, "/c", "exit", WOW64_EXIT_CODE.toString()),
@@ -346,6 +354,14 @@ class WineInitialiser(
         val exited = result.outcome as? ProcessRunner.Outcome.Exited
         val detail = buildString {
             append(architecture)
+            append(" · ")
+            append(
+                if (hostInPrefix != null) {
+                    "${flavour.wow64DllName} in system32"
+                } else {
+                    "${flavour.wow64DllName} MISSING from system32"
+                },
+            )
             if (exited != null) {
                 append(" · exit ")
                 append(exited.exitCode)
