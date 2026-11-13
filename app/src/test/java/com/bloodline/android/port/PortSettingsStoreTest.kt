@@ -43,7 +43,10 @@ class PortSettingsStoreTest {
     fun `applies a change and keeps the previous file`() {
         val root = temporary.newFolder("apply")
         val file = writing(root, stock)
-        val store = PortSettingsStore(layout(root))
+        val store = PortSettingsStore.forPath(
+            settings = File(root, "overlay/port_settings.txt"),
+            backup = File(root, "overlay/port_settings.txt.bak"),
+        )
 
         assertEquals(
             PortSettingsStore.Result.Written,
@@ -52,19 +55,22 @@ class PortSettingsStoreTest {
 
         assertTrue(file.readText().contains("render_h=480"))
         assertTrue(store.hasBackup())
-        assertTrue(File(file.path + ".bloodline-backup").readText().contains("render_h=0"))
+        assertTrue(File(root, "overlay/port_settings.txt.bak").readText().contains("render_h=0"))
     }
 
     @Test
     fun `a second change does not overwrite the first backup`() {
         val root = temporary.newFolder("twice")
         writing(root, stock)
-        val store = PortSettingsStore(layout(root))
+        val store = PortSettingsStore.forPath(
+            settings = File(root, "overlay/port_settings.txt"),
+            backup = File(root, "overlay/port_settings.txt.bak"),
+        )
 
         store.apply(mapOf(PortSettings.KEY_RENDER_HEIGHT to "480"))
         store.apply(mapOf(PortSettings.KEY_FRAME_LIMIT to "30"))
 
-        val backup = File(File(root, "overlay/port_settings.txt").path + ".bloodline-backup")
+        val backup = File(root, "overlay/port_settings.txt.bak")
         assertTrue(
             "the backup must still be the stock settings",
             backup.readText().contains("render_h=0"),
@@ -75,7 +81,10 @@ class PortSettingsStoreTest {
     fun `restore puts the backup back`() {
         val root = temporary.newFolder("restore")
         val file = writing(root, stock)
-        val store = PortSettingsStore(layout(root))
+        val store = PortSettingsStore.forPath(
+            settings = File(root, "overlay/port_settings.txt"),
+            backup = File(root, "overlay/port_settings.txt.bak"),
+        )
 
         store.apply(mapOf(PortSettings.KEY_RENDER_HEIGHT to "480"))
         assertEquals(PortSettingsStore.Result.Written, store.restore())
@@ -87,7 +96,10 @@ class PortSettingsStoreTest {
     fun `restore without a backup says so`() {
         val root = temporary.newFolder("nobackup")
         writing(root, stock)
-        val store = PortSettingsStore(layout(root))
+        val store = PortSettingsStore.forPath(
+            settings = File(root, "overlay/port_settings.txt"),
+            backup = File(root, "overlay/port_settings.txt.bak"),
+        )
 
         val result = store.restore()
 
@@ -98,7 +110,10 @@ class PortSettingsStoreTest {
     @Test
     fun `a missing settings file is refused, not created`() {
         val root = temporary.newFolder("missing")
-        val store = PortSettingsStore(layout(root))
+        val store = PortSettingsStore.forPath(
+            settings = File(root, "overlay/port_settings.txt"),
+            backup = File(root, "overlay/port_settings.txt.bak"),
+        )
 
         val result = store.apply(mapOf(PortSettings.KEY_RENDER_HEIGHT to "480"))
 
@@ -113,7 +128,10 @@ class PortSettingsStoreTest {
         val root = temporary.newFolder("temp")
         writing(root, stock)
 
-        PortSettingsStore(layout(root)).apply(mapOf(PortSettings.KEY_RENDER_HEIGHT to "480"))
+        PortSettingsStore.forPath(
+            settings = File(root, "overlay/port_settings.txt"),
+            backup = File(root, "overlay/port_settings.txt.bak"),
+        ).apply(mapOf(PortSettings.KEY_RENDER_HEIGHT to "480"))
 
         assertFalse(File(root, "overlay/port_settings.txt.tmp").exists())
     }
@@ -123,7 +141,10 @@ class PortSettingsStoreTest {
         val root = temporary.newFolder("snapshot")
         writing(root, stock)
 
-        val snapshot = PortSettingsStore(layout(root)).snapshot()
+        val snapshot = PortSettingsStore.forPath(
+            settings = File(root, "overlay/port_settings.txt"),
+            backup = File(root, "overlay/port_settings.txt.bak"),
+        ).snapshot()
 
         assertNotNull(snapshot)
         assertEquals(0, snapshot!!.renderHeight)
@@ -135,7 +156,10 @@ class PortSettingsStoreTest {
         val root = temporary.newFolder("unknown")
         val file = writing(root, stock + "\nui.padBind12=12.0\n")
 
-        PortSettingsStore(layout(root)).apply(mapOf(PortSettings.KEY_FRAME_LIMIT to "30"))
+        PortSettingsStore.forPath(
+            settings = File(root, "overlay/port_settings.txt"),
+            backup = File(root, "overlay/port_settings.txt.bak"),
+        ).apply(mapOf(PortSettings.KEY_FRAME_LIMIT to "30"))
 
         assertTrue(file.readText().contains("ui.padBind12=12.0"))
     }

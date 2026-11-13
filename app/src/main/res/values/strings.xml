@@ -204,7 +204,8 @@
     <string name="setting_port_restored">Previous settings restored</string>
     <string name="setting_port_apply">Apply</string>
     <string name="setting_port_applied">Applied: %1$s</string>
-    <string name="setting_port_needs_storage">Storage access is needed to change the port\'s settings. Without it this app cannot write to Download.</string>
+    <string name="setting_port_grant">Choose the port folder</string>
+    <string name="setting_port_grant_detail">Android does not let one app write into another app\'s folder in shared storage by path, even with the storage permission. Pick the port\'s game folder once; the grant is remembered, so this app can read and write overlay/port_settings.txt.</string>
 
     <!-- Reasons a row is disabled. Shown verbatim so nothing is faked. -->
     <string name="setting_needs_runtime">Needs the compatibility runtime. The value is remembered and will be applied as soon as the runtime exists.</string>

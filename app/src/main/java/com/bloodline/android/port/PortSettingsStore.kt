@@ -1,24 +1,29 @@
 package com.bloodline.android.port
 
-import java.io.File
-import java.io.IOException
-
 /**
  * Changes the port's settings while keeping a way back.
  *
  * The port rewrites `port_settings.txt` itself, so editing it is only half the
  * job: the other half is knowing what it looked like before, and putting that
- * back when the change is wrong. On a phone that means the difference between
- * "try a lower resolution" and "reinstall the game".
+ * back when the change is wrong.
  *
- * Every write goes through a temporary file and a rename, because a process
- * killed mid-write would otherwise leave the port with a truncated settings
- * file — and the port treats a missing key as its own default, so a half file
- * silently changes settings nobody asked to change.
+ * It works on a [PortFile] rather than a path because of a measured platform
+ * fact: on Android 14 a plain write into shared storage is refused even with
+ * `WRITE_EXTERNAL_STORAGE` granted, so the only way to touch the port's file is
+ * through the Storage Access Framework. Everything below is the same either
+ * way, which is why the abstraction is here and not in the caller.
+ *
+ * The backup is written **beside** the settings, as a sibling document, when the
+ * backing store allows it; otherwise it is kept in app storage as text. Losing
+ * the backup is the one failure that makes "restore" a lie, so a write is
+ * refused rather than proceeding without one.
  */
 class PortSettingsStore(
-    private val layout: PortLayout,
-    private val backupSuffix: String = ".bloodline-backup",
+    /** The live settings file. */
+    private val settings: PortFile,
+
+    /** Where the previous contents are kept. */
+    private val backup: PortFile,
 ) {
 
     /** What a write did. */
@@ -27,17 +32,11 @@ class PortSettingsStore(
         data class Failed(val reason: String) : Result
     }
 
-    private fun settings(): File = File(layout.settingsFile())
-    private fun backup(): File = File(layout.settingsFile() + backupSuffix)
-
-    /** True when the port's settings file is where this layout says it is. */
-    fun exists(): Boolean = settings().isFile
+    /** True when the port's settings file is present. */
+    fun exists(): Boolean = settings.exists()
 
     /** Reads the current settings, or null when the file is absent or unreadable. */
-    fun read(): PortSettings? = runCatching {
-        val file = settings()
-        if (!file.isFile) null else PortSettings.parse(file.readText())
-    }.getOrNull()
+    fun read(): PortSettings? = settings.read()?.let(PortSettings::parse)
 
     /** The settings as a typed snapshot, or null when nothing could be read. */
     fun snapshot(): PortSettingsSnapshot? = read()?.snapshot()
@@ -45,91 +44,74 @@ class PortSettingsStore(
     /**
      * Applies [changes] and records the previous contents first.
      *
-     * The backup is only taken when one does not already exist, so the first
-     * change of a session is what gets remembered. Overwriting it on every
-     * write would make "restore" mean "undo one step", which is not what
+     * The backup is only taken when one does not already contain settings, so
+     * the first change of a session is what gets remembered. Overwriting it on
+     * every write would make "restore" mean "undo one step", which is not what
      * anyone wants from a settings screen.
      */
-    fun apply(changes: Map<String, String>, whenMillis: Long = System.currentTimeMillis()): Result {
-        val file = settings()
-        if (!file.isFile) {
+    fun apply(changes: Map<String, String>): Result {
+        if (!settings.exists()) {
             return Result.Failed(
-                "The port's settings file was not found at ${layout.settingsFile()}. " +
+                "The port's settings file was not found (${settings.describe()}). " +
                     "Start the game once so it writes its own settings, then try again.",
             )
         }
 
-        val original = try {
-            file.readText()
-        } catch (error: IOException) {
-            return Result.Failed("The settings could not be read: ${error.message}")
-        } catch (error: SecurityException) {
-            return Result.Failed("Reading the settings was refused by the platform.")
+        val original = when (val read = settings.readWithReason()) {
+            is PortFile.Result.Ok -> read.value
+            is PortFile.Result.Err -> return Result.Failed(read.reason)
         }
 
-        val backupFile = backup()
-        if (!backupFile.exists()) {
-            runCatching { backupFile.writeText(original) }
-                .onFailure {
-                    return Result.Failed(
-                        "A backup could not be written, so nothing was changed: ${it.message}",
-                    )
-                }
+        if (backup.read().isNullOrBlank()) {
+            when (val written = backup.write(original)) {
+                is PortFile.Result.Ok -> Unit
+                is PortFile.Result.Err -> return Result.Failed(
+                    "A backup could not be written, so nothing was changed: ${written.reason}",
+                )
+            }
         }
 
         val updated = PortSettings.parse(original)
         changes.forEach { (key, value) -> updated.set(key, value) }
 
-        return writeAtomically(file, updated.render())
+        return when (val written = settings.write(updated.render())) {
+            is PortFile.Result.Ok -> Result.Written
+            is PortFile.Result.Err -> Result.Failed(written.reason)
+        }
     }
 
     /** Puts the backup back, and reports whether there was one. */
     fun restore(): Result {
-        val backupFile = backup()
-        if (!backupFile.isFile) {
+        val text = backup.read()
+        if (text.isNullOrBlank()) {
             return Result.Failed("There is no backup to restore; nothing has been changed yet.")
         }
-        val text = runCatching { backupFile.readText() }.getOrNull()
-            ?: return Result.Failed("The backup could not be read.")
-        return writeAtomically(settings(), text)
+        return when (val written = settings.write(text)) {
+            is PortFile.Result.Ok -> Result.Written
+            is PortFile.Result.Err -> Result.Failed(written.reason)
+        }
     }
 
-    /** True when a backup exists, i.e. when [restore] would do something. */
-    fun hasBackup(): Boolean = backup().isFile
+    /** True when [restore] would do something. */
+    fun hasBackup(): Boolean = !backup.read().isNullOrBlank()
 
     /** When the backup was written, or 0 when there is none. */
-    fun backupTimeMillis(): Long = backup().lastModified()
+    fun backupTimeMillis(): Long = backup.lastModified()
 
-    /**
-     * Writes [text] to [file] via a sibling temporary file.
-     *
-     * Written to the same directory so the rename is on one filesystem and
-     * therefore atomic. The temporary file is removed on failure, because a
-     * `.tmp` beside the settings is a file the port might one day decide to
-     * read.
-     */
-    private fun writeAtomically(file: File, text: String): Result {
-        val temp = File(file.parentFile, "${file.name}.tmp")
-        return try {
-            file.parentFile?.mkdirs()
-            temp.writeText(text)
-            if (!temp.renameTo(file)) {
-                // Some Android filesystems refuse a rename onto an existing
-                // file; deleting first is the fallback, and the window is small
-                // because the new contents already exist in `temp`.
-                file.delete()
-                if (!temp.renameTo(file)) {
-                    temp.delete()
-                    return Result.Failed("The settings could not be replaced.")
-                }
-            }
-            Result.Written
-        } catch (error: IOException) {
-            temp.delete()
-            Result.Failed("The settings could not be written: ${error.message}")
-        } catch (error: SecurityException) {
-            temp.delete()
-            Result.Failed("Writing the settings was refused by the platform.")
-        }
+    companion object {
+
+        /**
+         * A store for a settings file reached as a plain path.
+         *
+         * Only correct for app storage. Shared storage needs the SAF
+         * implementation, because a path write there is refused on modern
+         * Android even when `WRITE_EXTERNAL_STORAGE` reports as granted.
+         */
+        fun forPath(settings: java.io.File, backup: java.io.File): PortSettingsStore =
+            PortSettingsStore(FilePortFile(settings), FilePortFile(backup))
+
+        /** A store over any two [PortFile]s. */
+        fun of(settings: PortFile, backup: PortFile): PortSettingsStore =
+            PortSettingsStore(settings, backup)
     }
 }

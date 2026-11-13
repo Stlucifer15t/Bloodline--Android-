@@ -1,3 +1,4 @@
+    
 package com.bloodline.android.ui
 
 import android.content.Context
@@ -30,9 +31,9 @@ import com.bloodline.android.display.ResolutionCalculator
 import com.bloodline.android.display.ResolutionScale
 import com.bloodline.android.display.describe
 import com.bloodline.android.game.GameInstallRepository
-import android.Manifest
-import android.content.pm.PackageManager
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.documentfile.provider.DocumentFile
+import com.bloodline.android.port.SafPortFiles
 import com.bloodline.android.port.DeviceProfile
 import com.bloodline.android.port.PortPreset
 import com.bloodline.android.port.PortProviders
@@ -132,6 +133,7 @@ class SettingsActivity : AppCompatActivity() {
         )
         display = DisplayCapabilities.detect(this)
         portInstall = PortScanner(PortScanner.defaultRoots(this)).find()
+        loadPortTree()
 
         buildSections()
 
@@ -191,9 +193,12 @@ class SettingsActivity : AppCompatActivity() {
                 return@section
             }
 
-            val store = PortSettingsStore(install.layout)
-            val tuner = PortTuner(store)
-            val snapshot = tuner.current()
+            // The settings live in shared storage, which a plain path write
+            // cannot reach on this Android version even with the permission
+            // granted. The folder grant SAF returns is the only way in, so the
+            // store is built over documents.
+            val tuner = portTree?.let(::tunerFor)
+            val snapshot = tuner?.current()
             val identity = PortProviders.gpuIdentity(this@SettingsActivity)
 
             readOnlyRow(
@@ -236,16 +241,25 @@ class SettingsActivity : AppCompatActivity() {
                     resources.displayMetrics.heightPixels,
                 ),
             )
+            if (tuner == null) {
+                actionRow(
+                    title = getString(R.string.setting_port_grant),
+                    detail = getString(R.string.setting_port_grant_detail),
+                    enabled = true,
+                ) { pickPortFolder() }
+                return@section
+            }
+
             actionRow(
                 title = recommended.title,
                 detail = recommended.summary,
-                enabled = install.hasSettings,
+                enabled = true,
             ) { confirmApply(tuner, recommended) }
 
             actionRow(
                 title = PortPreset.EMERGENCY.title,
                 detail = PortPreset.EMERGENCY.summary,
-                enabled = install.hasSettings,
+                enabled = true,
             ) { confirmApply(tuner, PortPreset.EMERGENCY) }
 
             actionRow(
@@ -253,14 +267,12 @@ class SettingsActivity : AppCompatActivity() {
                 detail = getString(R.string.setting_port_restore_detail),
                 enabled = tuner.canRestore(),
             ) {
-                withStorageAccess {
-                    when (val result = tuner.restore()) {
-                        is PortSettingsStore.Result.Written -> {
-                            showMessage(getString(R.string.setting_port_restored))
-                            rebuild()
-                        }
-                        is PortSettingsStore.Result.Failed -> showMessage(result.reason)
+                when (val result = tuner.restore()) {
+                    is PortSettingsStore.Result.Written -> {
+                        showMessage(getString(R.string.setting_port_restored))
+                        rebuild()
                     }
+                    is PortSettingsStore.Result.Failed -> showMessage(result.reason)
                 }
             }
         }
@@ -277,7 +289,6 @@ class SettingsActivity : AppCompatActivity() {
             )
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(R.string.setting_port_apply) { _, _ ->
-                withStorageAccess {
                     when (val outcome = tuner.apply(preset)) {
                         is PortTuner.Outcome.Applied -> {
                             showMessage(
@@ -288,8 +299,7 @@ class SettingsActivity : AppCompatActivity() {
                             )
                             rebuild()
                         }
-                        is PortTuner.Outcome.Refused -> showMessage(outcome.reason)
-                    }
+                    is PortTuner.Outcome.Refused -> showMessage(outcome.reason)
                 }
             }
             .show()
@@ -307,42 +317,45 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
-     * Asks for storage access, but only when a change actually needs it.
+     * The folder the user granted for the port, remembered across restarts.
      *
-     * The port's settings live in shared storage, which is not reachable any
-     * other way. Asking at first launch would be the usual thing and the wrong
-     * thing: this app's own screens never touch the user's files, so the
-     * prompt belongs at the moment a setting is about to be written, with the
-     * reason on screen.
+     * A grant is per-URI and is taken once; asking again on every visit would
+     * be both annoying and pointless. The URI is persisted, which is why the
+     * permission has to be taken with `FLAG_GRANT_PERSISTABLE_URI_PERMISSION`
+     * — a temporary grant would stop working the moment the screen closed.
      */
-    private val storagePermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        val pending = pendingWrite
-        pendingWrite = null
-        if (granted && pending != null) {
-            pending()
-        } else if (!granted) {
-            showMessage(getString(R.string.setting_port_needs_storage))
+    private var portTree: DocumentFile? = null
+
+    private val portFolderPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
         }
+        portTree = DocumentFile.fromTreeUri(this, uri)
+        rebuild()
     }
 
-    /** A write waiting on the storage prompt, if one is in flight. */
-    private var pendingWrite: (() -> Unit)? = null
+    private fun pickPortFolder() = portFolderPicker.launch(null)
 
-    /** Runs [write] now, or after asking for storage access. */
-    private fun withStorageAccess(write: () -> Unit) {
-        if (hasStorageAccess()) {
-            write()
-            return
-        }
-        pendingWrite = write
-        storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    /** A tuner over the picked folder's settings, or null when they are absent. */
+    private fun tunerFor(tree: DocumentFile): PortTuner? {
+        val live = SafPortFiles.fileIn(contentResolver, tree) ?: return null
+        val backup = SafPortFiles.backupIn(contentResolver, tree) ?: return null
+        return PortTuner(PortSettingsStore.of(settings = live, backup = backup))
     }
 
-    private fun hasStorageAccess(): Boolean =
-        checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
-            PackageManager.PERMISSION_GRANTED
+    /** Restores the remembered port grant, if there is one. */
+    private fun loadPortTree() {
+        val remembered = contentResolver.persistedUriPermissions.firstOrNull {
+            it.isReadPermission && it.isWritePermission
+        } ?: return
+        portTree = DocumentFile.fromTreeUri(this, remembered.uri)
+    }
 
     // ------------------------------------------------------------- 1 general
 
