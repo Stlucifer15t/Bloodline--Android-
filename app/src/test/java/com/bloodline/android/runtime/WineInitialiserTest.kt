@@ -66,7 +66,7 @@ class WineInitialiserTest {
                 onExit: (ProcessRunner.Outcome) -> Unit,
             ): ProcessRunner.Handle {
                 onExit(scripted(request))
-                return ProcessRunner.Handle { }
+                return noHandle()
             }
 
             private fun scripted(request: ProcessRunner.Request): ProcessRunner.Outcome {
@@ -94,12 +94,16 @@ class WineInitialiserTest {
             onExit: (ProcessRunner.Outcome) -> Unit,
         ): ProcessRunner.Handle {
             onExit(outcome)
-            return ProcessRunner.Handle { }
+            return noHandle()
         }
     }
 
     private fun exited(code: Int, vararg output: String) =
         ProcessRunner.Outcome.Exited(code, output.toList(), 12L)
+
+    /** 139 is 128 + SIGSEGV: what a Windows program crashing under Wine looks like. */
+    private fun crashed(code: Int, vararg output: String) =
+        ProcessRunner.Outcome.Exited(code, output.toList(), 201L)
 
     // ------------------------------------------------------------------ tests
 
@@ -132,6 +136,43 @@ class WineInitialiserTest {
             WineInitialiser.Stage.WOW64,
             report.results.last().stage,
         )
+    }
+
+    @Test
+    fun `names every stage before it runs, so a long wait is never silent`() {
+        // The three stages that run a process carry timeouts of 10s, 180s and
+        // 120s. Reporting only at the end means the screen says nothing for
+        // five minutes, which is indistinguishable from a broken button.
+        val (initialiser, _) = initialiser(exited(0), exited(0), exited(3))
+
+        val seen = mutableListOf<String>()
+        initialiser.initialise(
+            flavour = WineFlavour.WOW64_BOX64,
+            environment = emptyMap(),
+            onStage = { stage, index, total -> seen += "${stage.name} $index/$total" },
+        )
+
+        assertEquals(
+            listOf("VALIDATE 1/5", "LOADER 2/5", "PREFIX 3/5", "REGISTRY 4/5", "WOW64 5/5"),
+            seen,
+        )
+    }
+
+    @Test
+    fun `stops naming stages at the one that failed`() {
+        // The last stage reported is the stage to blame, so it has to be the
+        // one that actually broke rather than the one after it.
+        val (initialiser, _) = initialiser(exited(1))
+
+        val seen = mutableListOf<WineInitialiser.Stage>()
+        val report = initialiser.initialise(
+            flavour = WineFlavour.WOW64_BOX64,
+            environment = emptyMap(),
+            onStage = { stage, _, _ -> seen += stage },
+        )
+
+        assertEquals(listOf(WineInitialiser.Stage.VALIDATE, WineInitialiser.Stage.LOADER), seen)
+        assertEquals(WineInitialiser.Stage.LOADER, report.failedAt?.stage)
     }
 
     @Test
@@ -197,6 +238,52 @@ class WineInitialiserTest {
     }
 
     @Test
+    fun `a crashed 32-bit check warns but does not stop the launch`() {
+        // The game is not the program this stage ran. It ran a stand-in —
+        // cmd.exe, a console program that drags in conhost.exe, which the
+        // game never touches — so its crash is evidence about the stand-in
+        // and a prediction about the game, not a result.
+        //
+        // Vetoing the launch here is the one move that guarantees we learn
+        // nothing: the game never runs, so its own output never exists.
+        val (initialiser, _) = initialiser(exited(0), exited(0), crashed(139))
+
+        val report = initialiser.initialise(WineFlavour.WOW64_BOX64, emptyMap())
+
+        // It is still a failure, and still reported as one.
+        assertFalse(report.succeeded)
+        assertEquals(WineInitialiser.Stage.WOW64, report.failedAt?.stage)
+        // But it does not block the launch...
+        assertEquals(null as WineInitialiser.StageResult?, report.blockingFailure)
+        // ...it is carried as a warning instead.
+        assertEquals(WineInitialiser.Stage.WOW64, report.warning?.stage)
+        assertTrue(report.warning?.describe() ?: "", report.warning!!.describe().contains("SIGSEGV"))
+    }
+
+    @Test
+    fun `any other failed stage still stops the launch`() {
+        // A prefix that will not initialise leaves nothing to launch into,
+        // so unlike the 32-bit check these keep their veto.
+        val (initialiser, _) = initialiser(exited(0), exited(2), exited(3))
+
+        val report = initialiser.initialise(WineFlavour.WOW64_BOX64, emptyMap())
+
+        assertEquals(WineInitialiser.Stage.PREFIX, report.blockingFailure?.stage)
+        assertEquals(null as WineInitialiser.StageResult?, report.warning)
+    }
+
+    @Test
+    fun `a clean run warns about nothing`() {
+        val (initialiser, _) = initialiser(exited(0), exited(0), exited(3))
+
+        val report = initialiser.initialise(WineFlavour.WOW64_BOX64, emptyMap())
+
+        assertTrue(report.describe(), report.succeeded)
+        assertEquals(null as WineInitialiser.StageResult?, report.warning)
+        assertEquals(null as WineInitialiser.StageResult?, report.blockingFailure)
+    }
+
+    @Test
     fun `a Wine that is not an ARM64 build is refused before anything runs`() {
         val root = temporary.newFolder("wrong-arch")
         val store = RuntimePackageStore(root)
@@ -255,6 +342,117 @@ class WineInitialiserTest {
         }
     }
 
+    @Test
+    fun `a prefix that has already been created is not rebuilt`() {
+        // wineboot, every registry write and the 32-bit probe are minutes of a
+        // phone's time. Once the prefix exists and was verified, a second
+        // launch must not pay for them again.
+        val root = temporary.newFolder("cached-init")
+        val store = RuntimePackageStore(root)
+        val wineRoot = store.packageDir(RuntimePackageCatalog.WINE_ARM64EC)
+
+        File(wineRoot, "bin").mkdirs()
+        File(wineRoot, "bin/wine").writeBytes(elf(AARCH64, "/system/bin/linker64"))
+        File(wineRoot, "lib/wine/i386-windows").mkdirs()
+        File(wineRoot, "lib/wine/i386-windows/cmd.exe").writeBytes(byteArrayOf(0x4d, 0x5a))
+        store.prefixDir().mkdirs()
+
+        var runs = 0
+        val runner = object : CommandRunner {
+            override fun run(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+            ): ProcessRunner.Outcome {
+                runs += 1
+                return when {
+                    request.command.any { it.contains("--version") } -> exited(0)
+                    request.command.any { it.contains("wineboot") } -> exited(0)
+                    else -> exited(3)
+                }
+            }
+
+            override fun launch(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+                onExit: (ProcessRunner.Outcome) -> Unit,
+            ): ProcessRunner.Handle {
+                onExit(exited(0))
+                return noHandle()
+            }
+        }
+
+        val initialiser = WineInitialiser(runner, RuntimeLayout(store), store)
+
+        val first = initialiser.initialise(
+            WineFlavour.WOW64_BOX64,
+            emptyMap(),
+            reuseInitialisedPrefix = true,
+        )
+
+        assertTrue(first.describe(), first.prefixIsUsable)
+        assertTrue("no Wine process ran on the first launch", runs > 0)
+        val runsAfterFirst = runs
+
+        val second = initialiser.initialise(
+            WineFlavour.WOW64_BOX64,
+            emptyMap(),
+            reuseInitialisedPrefix = true,
+        )
+
+        assertEquals("a cached prefix must not start Wine again", runsAfterFirst, runs)
+        assertTrue(second.results.isNotEmpty())
+        // Reported as skipped, not as success: nothing ran, and a report that
+        // claimed it did would be inventing a measurement.
+        assertTrue(second.results.all { !it.performed })
+    }
+
+    @Test
+    fun `a failed prefix is not remembered`() {
+        // Writing the record after a failure would make the next launch skip
+        // the very stage that broke.
+        val root = temporary.newFolder("failed-init")
+        val store = RuntimePackageStore(root)
+        val wineRoot = store.packageDir(RuntimePackageCatalog.WINE_ARM64EC)
+
+        File(wineRoot, "bin").mkdirs()
+        File(wineRoot, "bin/wine").writeBytes(elf(AARCH64, "/system/bin/linker64"))
+
+        // `wine --version` succeeds and `wineboot` fails, which is the shape of
+        // a prefix that could not be created.
+        val runner = object : CommandRunner {
+            override fun run(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+            ): ProcessRunner.Outcome =
+                if (request.command.any { it.contains("wineboot") }) {
+                    exited(2, "wineboot: could not create the prefix")
+                } else {
+                    exited(0)
+                }
+
+            override fun launch(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+                onExit: (ProcessRunner.Outcome) -> Unit,
+            ): ProcessRunner.Handle {
+                onExit(exited(0))
+                return noHandle()
+            }
+        }
+
+        val report = WineInitialiser(runner, RuntimeLayout(store), store).initialise(
+            WineFlavour.WOW64_BOX64,
+            emptyMap(),
+            reuseInitialisedPrefix = true,
+        )
+
+        assertFalse("wineboot was expected to fail", report.prefixIsUsable)
+        assertFalse(
+            "a failed prefix must not be recorded as initialised",
+            store.initialisationMarker().isFile,
+        )
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** A minimal but genuine ELF64 header, so the real parser runs. */
@@ -297,6 +495,11 @@ class WineInitialiserTest {
 
         System.arraycopy(interpBytes, 0, out, interpOffset, interpBytes.size)
         return out
+    }
+
+    private fun noHandle(): ProcessRunner.Handle = object : ProcessRunner.Handle {
+        override val pid: Long? = null
+        override fun cancel() = Unit
     }
 
     /** Silences the unused-import warning without changing behaviour. */

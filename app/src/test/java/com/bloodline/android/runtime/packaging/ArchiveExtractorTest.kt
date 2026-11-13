@@ -49,13 +49,22 @@ class ArchiveExtractorTest {
     }
 
     /** The 512-byte tar header, with the checksum the format requires. */
-    private fun tarHeader(name: String, size: Int, typeflag: Byte = '0'.code.toByte()): ByteArray {
+    private fun tarHeader(
+        name: String,
+        size: Int,
+        typeflag: Byte = '0'.code.toByte(),
+        linkName: String = "",
+    ): ByteArray {
         val block = ByteArray(512)
         val nameBytes = name.toByteArray(Charsets.UTF_8)
         System.arraycopy(nameBytes, 0, block, 0, minOf(nameBytes.size, 100))
         val sizeText = String.format("%011o", size).toByteArray(Charsets.US_ASCII)
         System.arraycopy(sizeText, 0, block, 124, sizeText.size)
         block[156] = typeflag
+        // The target of a link lives at offset 157, 100 bytes. Without it a
+        // symlink entry carries an empty name and is correctly refused.
+        val linkBytes = linkName.toByteArray(Charsets.UTF_8)
+        System.arraycopy(linkBytes, 0, block, 157, minOf(linkBytes.size, 100))
         "ustar\u000000".toByteArray(Charsets.US_ASCII).copyInto(block, 257)
 
         // The checksum counts its own field as eight spaces, so the field is
@@ -175,6 +184,41 @@ class ArchiveExtractorTest {
         assertTrue(result is ArchiveExtractor.Result.Success)
         assertTrue(TarExtractor.skippedEntries().any { it.startsWith("link") })
     }
+
+    @Test
+    fun `a tar symlink that stays inside the archive is created`() {
+        // Wine's bin/ is built from links: `wine64` and `wineboot` point at
+        // `wine`. Skipping them leaves four-byte files containing a path where
+        // a loader should be, and the failure surfaces much later as
+        // "No such file or directory".
+        val file = temporary.newFile("tar-safe-link.tar")
+        file.outputStream().buffered().use { out ->
+            out.write(tarHeader("bin/wine", 0, typeflag = '0'.code.toByte()))
+            // A zero-byte entry needs no data block, so none is written here:
+            // an extra block of zeros would be read as the end of the archive
+            // and the link after it would never be seen.
+            out.write(tarHeader("bin/wineboot", 4, typeflag = '2'.code.toByte(), linkName = "wine"))
+            out.write("wine".toByteArray())
+            out.write(ByteArray(508))
+            out.write(ByteArray(1024))
+        }
+        val target = target("tar-symlink")
+
+        val result = extractor.extract(file, target)
+
+        assertTrue(result is ArchiveExtractor.Result.Success)
+        val link = File(target, "bin/wineboot")
+        assertTrue("the link should exist", link.exists() || isSymbolicLink(link))
+        assertTrue(isSymbolicLink(link))
+        assertEquals("wine", java.nio.file.Files.readSymbolicLink(link.toPath()).toString())
+        assertFalse(
+            "an in-archive link is not a skipped entry",
+            TarExtractor.skippedEntries().any { it.startsWith("bin/wineboot") },
+        )
+    }
+
+    private fun isSymbolicLink(file: File): Boolean =
+        java.nio.file.Files.isSymbolicLink(file.toPath())
 
     // ---------------------------------------------------------- path traversal
 

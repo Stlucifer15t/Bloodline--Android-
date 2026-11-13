@@ -82,11 +82,39 @@ class RuntimeHost(
         /** Report a state change. Always called on the main thread. */
         fun onPhaseChanged(phase: RuntimeManager.Phase)
 
-        /** The run ended. [message] is written for a person to read. */
-        fun onFinished(message: String)
+        /**
+         * What the launch is doing right now, in words for a person.
+         *
+         * Separate from [onPhaseChanged] because the phases are too coarse to
+         * explain a wait: bringing Wine up spends up to three minutes in one
+         * phase. Defaults to nothing so a host that only cares about the
+         * outcome does not have to implement it.
+         */
+        fun onLaunchProgress(message: String) {}
+
+        /**
+         * The run ended. [message] is written for a person to read.
+         *
+         * [exit] is why, when a process actually ended. It is passed rather
+         * than left to the caller to infer from the wording, because a game
+         * that crashed and a game that closed are both "the run ended" and
+         * only one of them needs its output put on screen.
+         */
+        fun onFinished(message: String, exit: GameProcessManager.ExitResult? = null)
 
         /** Something went wrong before a process existed. */
         fun onError(message: String)
+
+        /**
+         * The 32-bit check failed, and the game is being started anyway.
+         *
+         * Not an error, because nothing has failed yet: the check ran a
+         * stand-in for the game, and a stand-in that crashed is a reason to
+         * expect a crash, not a result. Delivered as the stage result rather
+         * than as a sentence so the host can phrase it — this layer has no
+         * [android.content.Context] and so no strings.
+         */
+        fun onWineWarning(failed: WineInitialiser.StageResult) {}
     }
 
     private var validation: InstallValidation? = null
@@ -97,8 +125,26 @@ class RuntimeHost(
         // starts the process and comes straight back.
         manager.onProcessExit = { result ->
             host.exitGameplay()
-            host.onFinished(messageFor(result))
+            host.onFinished(messageFor(result), result)
         }
+
+        // Every phase as it is entered, not just the one it stopped at. The
+        // manager is the only thing that knows when it moves, so this is what
+        // lets the screen follow a launch that takes minutes.
+        manager.onPhase = { phase -> host.onPhaseChanged(phase) }
+
+        // Named rather than counted: "creating the Windows prefix (3 of 5)" is
+        // something a user can wait through, where "preparing the runtime"
+        // is not. The stage is also the thing a failure gets blamed on, so
+        // seeing it arrive is seeing how far the launch actually got.
+        manager.onWineStage = { stage, index, total ->
+            host.onLaunchProgress("${stage.title} ($index of $total)…")
+        }
+
+        // The 32-bit check crashed, and we are launching the game anyway.
+        // Said out loud because otherwise the launch looks like it ignored a
+        // failure rather than deciding that a stand-in's crash is not proof.
+        manager.onWineWarning = { failed -> host.onWineWarning(failed) }
     }
 
     /** The current lifecycle phase. */
@@ -121,6 +167,24 @@ class RuntimeHost(
     fun validation(): InstallValidation? = validation
 
     /**
+     * How far Wine got the last time it was brought up, or null.
+     *
+     * Exposed because a launch failure is a Wine failure, and the only
+     * evidence for why is the report this holds: every stage, and the output
+     * of the one that broke. A toast can carry one line; a crash inside Wine
+     * cannot be understood from one line.
+     */
+    fun initialisation(): WineInitialiser.Report? = manager.initialisation()
+
+    /**
+     * The environment the game would be started with, for diagnostics.
+     *
+     * A pasted failure that says "Wine printed nothing" is only interpretable
+     * next to what Wine was asked to print, and that lives in here.
+     */
+    fun plannedEnvironment(): Map<String, String> = manager.plannedEnvironment()
+
+    /**
      * What the runtime would use right now, for the UI to show.
      *
      * Reported even though nothing can launch, because "which backend would this
@@ -141,15 +205,18 @@ class RuntimeHost(
     fun launch(): RuntimeManager.Phase {
         var handedOver = false
         return try {
-            // The screen is only handed over once there is actually something to
-            // hand it to, and it is always handed back in the finally block.
+            // The manager publishes each phase itself, so this only reads the
+            // one it stopped at. Publishing again would double every UI update.
             val phase = manager.start(validation)
-            publish(phase)
 
-            if (phase is RuntimeManager.Phase.InGame) {
+            // Handing the screen over is gated on a live process, not on the
+            // phase: a game that died inside `start()` still reports InGame,
+            // and taking the screen for it would flip the device to landscape
+            // and straight back for a process that no longer exists.
+            if (phase is RuntimeManager.Phase.InGame && manager.isRunning()) {
                 host.enterGameplay()
                 handedOver = true
-            } else {
+            } else if (phase !is RuntimeManager.Phase.InGame) {
                 val reason = manager.error() ?: "The runtime is not ready."
                 host.onError(reason)
             }
@@ -184,7 +251,7 @@ class RuntimeHost(
     fun stop(reason: RuntimeManager.StopReason): GameProcessManager.ExitResult {
         val result = manager.stop(reason)
         publish(manager.phase())
-        host.onFinished(messageFor(result))
+        host.onFinished(messageFor(result), result)
         return result
     }
 
@@ -210,23 +277,25 @@ class RuntimeHost(
         exit = exit,
         errors = errors,
         initialisation = manager.initialisation(),
+        wow64HostDll = manager.wow64HostDll(),
     )
 
     private fun publish(phase: RuntimeManager.Phase) = host.onPhaseChanged(phase)
 
-    private fun messageFor(result: GameProcessManager.ExitResult): String = when (result.reason) {
-        GameProcessManager.ExitReason.CLEAN -> "The game closed."
-        GameProcessManager.ExitReason.ERROR_CODE ->
-            "The game closed with an error (exit ${result.exitCode})."
-        GameProcessManager.ExitReason.SIGNAL ->
-            "The game was killed by the system (signal ${result.signal})."
-        GameProcessManager.ExitReason.REAPED ->
-            // Worth spelling out: this is Android's process cap, not a game bug,
-            // and the two need different fixes.
-            "The game process was stopped by Android. It ran for " +
-                "${result.durationMillis / 1000}s."
-        GameProcessManager.ExitReason.STOPPED -> "Stopped."
-        GameProcessManager.ExitReason.MISSING -> "The game process was never started."
+    /**
+     * One sentence for the screen.
+     *
+     * Delegated to the [result] itself, which decides the reading from the
+     * exit status and signal it was given. This used to assert a cause from
+     * the reason alone — "stopped by Android" — with nothing behind it. That
+     * is a guess wearing a finding's clothes, and it is how a Wine crash and
+     * a process cap ended up producing the same sentence.
+     */
+    private fun messageFor(result: GameProcessManager.ExitResult): String = buildString {
+        append(result.describe())
+        append(" It ran for ${result.durationMillis}ms")
+        result.signalName?.let { append(" ($it)") }
+        append(".")
     }
 
     /** The three choices the runtime would make right now. */

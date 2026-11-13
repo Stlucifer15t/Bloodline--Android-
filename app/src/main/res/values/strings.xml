@@ -53,6 +53,10 @@
     <string name="runtime_selection_translator">Translator: %1$s.</string>
     <string name="runtime_selection_audio">Audio: %1$s.</string>
     <string name="runtime_overall_detail">The Windows compatibility layer is not integrated yet. The launcher ships as a UI foundation only.</string>
+    <string name="runtime_overall_detail_ready">Wine and the 32-bit Windows layer are installed, and this device has been measured. Tap Launch to run the game.</string>
+    <string name="runtime_overall_detail_partial">Part of the compatibility layer is installed and part is not. Every row below says which; press Launch to find out how far it gets.</string>
+    <string name="runtime_overall_detail_none">The Windows compatibility layer is not installed yet. Download it from the runtime card, or press Launch.</string>
+    <string name="runtime_overall_detail_installed">Wine and the 32-bit Windows layer are installed. Whether they actually run on this device is decided by pressing Launch, not by anything stored here.</string>
 
     <!-- Status labels -->
     <string name="status_ready">Ready</string>
@@ -113,6 +117,17 @@
     <string name="launch_locked_incomplete">Game data folder missing — launch stays disabled</string>
     <string name="launch_locked_no_runtime">The compatibility runtime is not integrated yet — launch stays disabled</string>
     <string name="launch_locked_not_validated">Vampire.exe has not been verified as a 32-bit Windows executable yet — launch stays disabled</string>
+    <string name="launch_blocked_title">Why launch is disabled</string>
+    <string name="launch_blocked_checked_folder">Checked folder: %1$s</string>
+    <string name="launch_blocked_recheck">Check again</string>
+    <string name="launch_progress_starting">Starting…</string>
+    <string name="launch_already_running">A launch is already in progress.</string>
+    <string name="launch_in_game_no_surface">The game process started, but this build has no surface to draw it on yet.</string>
+    <string name="launch_failure_heading">Last launch attempt</string>
+    <string name="launch_failure_output_heading">What %1$s printed:</string>
+    <string name="launch_failure_build">Launcher %1$s (%2$d) · WINEDEBUG=%3$s</string>
+    <string name="launch_failure_game_output_heading">What the game printed:</string>
+    <string name="wine_32bit_check_warning">The 32-bit check crashed (%1$s). Starting the game anyway — it may well fail the same way.</string>
 
     <!-- Runtime acquisition: the runtime is downloaded, never bundled. -->
     <string name="runtime_install_title">Install the compatibility runtime?</string>
@@ -173,6 +188,24 @@
     <string name="settings_section_audio">Audio</string>
     <string name="settings_section_input">Input</string>
     <string name="settings_section_diagnostics">Diagnostics</string>
+    <string name="settings_section_native_port">Native port</string>
+
+    <!-- Native port tuning. This section edits another app's settings file, so
+         every string here says which app it affects. -->
+    <string name="setting_port_not_found">Native port not found</string>
+    <string name="setting_port_not_found_detail">No folder here contains Bin/engine.dll beside a Vampire folder. This section tunes the native ARM64 port, not this launcher; install it or move its folder into Download and reopen this screen.</string>
+    <string name="setting_port_folder">Game folder</string>
+    <string name="setting_port_folder_detail">The folder the native port reads its files from. This app only changes files inside it that the port itself writes.</string>
+    <string name="setting_port_detected">This device</string>
+    <string name="setting_port_current">Port settings now</string>
+    <string name="setting_port_current_detail">What the port will do the next time it starts, read from its own settings file.</string>
+    <string name="setting_port_restore">Restore previous settings</string>
+    <string name="setting_port_restore_detail">Puts back the settings file exactly as it was before this app first changed it.</string>
+    <string name="setting_port_restored">Previous settings restored</string>
+    <string name="setting_port_apply">Apply</string>
+    <string name="setting_port_applied">Applied: %1$s</string>
+    <string name="setting_port_grant">Choose the port folder</string>
+    <string name="setting_port_grant_detail">Android does not let one app write into another app\'s folder in shared storage by path, even with the storage permission. Pick the port\'s game folder once; the grant is remembered, so this app can read and write overlay/port_settings.txt.</string>
 
     <!-- Reasons a row is disabled. Shown verbatim so nothing is faked. -->
     <string name="setting_needs_runtime">Needs the compatibility runtime. The value is remembered and will be applied as soon as the runtime exists.</string>

@@ -1,3 +1,4 @@
+    
 package com.bloodline.android.ui
 
 import android.content.Context
@@ -30,9 +31,19 @@ import com.bloodline.android.display.ResolutionCalculator
 import com.bloodline.android.display.ResolutionScale
 import com.bloodline.android.display.describe
 import com.bloodline.android.game.GameInstallRepository
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.documentfile.provider.DocumentFile
+import com.bloodline.android.port.SafPortFiles
+import com.bloodline.android.port.DeviceProfile
+import com.bloodline.android.port.PortPreset
+import com.bloodline.android.port.PortProviders
+import com.bloodline.android.port.PortScanner
+import com.bloodline.android.port.PortSettingsStore
+import com.bloodline.android.port.PortTuner
 import com.bloodline.android.runtime.NativeProbe
 import com.bloodline.android.runtime.ProbeCache
 import com.bloodline.android.runtime.RuntimeProbe
+import com.bloodline.android.runtime.RuntimeProviders
 import com.bloodline.android.storage.GameFolderStore
 import com.bloodline.android.storage.SharedPreferencesInstallMetadataStore
 import com.bloodline.android.storage.StorageLocations
@@ -79,6 +90,15 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var gameFolderStore: GameFolderStore
     private lateinit var installRepository: GameInstallRepository
 
+    /**
+     * The native port's install, found once when the screen opens.
+     *
+     * Null means "not found", which the section reports rather than hiding:
+     * the user needs to know this app looked and did not see the game, because
+     * the fix is to point it at the right folder.
+     */
+    private var portInstall: PortScanner.Found? = null
+
     /** Measured on this device, never assumed. Read once when the screen opens. */
     private lateinit var display: DisplayInfo
 
@@ -112,8 +132,19 @@ class SettingsActivity : AppCompatActivity() {
             appVersion = BuildConfig.VERSION_NAME,
         )
         display = DisplayCapabilities.detect(this)
+        portInstall = PortScanner(PortScanner.defaultRoots(this)).find()
+        loadPortTree()
 
         buildSections()
+
+        // The GPU name is the input to the preset, and the file that holds it
+        // is root-only on this device, so it comes from an EGL context instead.
+        // Probed off the main thread and applied when it arrives; the section
+        // says "unknown" until then rather than inventing a value.
+        PortProviders.probeRenderer { renderer ->
+            if (renderer == null || isFinishing || isDestroyed) return@probeRenderer
+            runOnUiThread { rebuild() }
+        }
 
         binding.resetButton.setOnClickListener {
             settings.resetToDefaults()
@@ -142,9 +173,197 @@ class SettingsActivity : AppCompatActivity() {
         generalSection(inflater)
         displaySection(inflater)
         performanceSection(inflater)
+        nativePortSection(inflater)
         audioSection(inflater)
         inputSection(inflater)
         diagnosticsSection(inflater)
+    }
+
+    // ------------------------------------------------------- native port
+
+    /**
+     * Tuning for the native port, which is the runtime that actually runs on
+     * this class of device.
+     *
+     * The distinction from the sections above is worth stating on screen: those
+     * configure *this launcher*, and this one edits the settings file of a
+     * different app — the recompiled ARM64 port. It is a tuner, not a launcher,
+     * and every row here says so.
+     */
+    private fun nativePortSection(inflater: LayoutInflater) {
+        val install = portInstall
+        section(inflater, R.string.settings_section_native_port, R.drawable.ic_section_performance) {
+            if (install == null) {
+                readOnlyRow(
+                    title = getString(R.string.setting_port_not_found),
+                    detail = getString(R.string.setting_port_not_found_detail),
+                    value = getString(R.string.setting_value_not_set),
+                )
+                return@section
+            }
+
+            // The settings live in shared storage, which a plain path write
+            // cannot reach on this Android version even with the permission
+            // granted. The folder grant SAF returns is the only way in, so the
+            // store is built over documents.
+            val tuner = portTree?.let(::tunerFor)
+            val snapshot = tuner?.current()
+            val identity = PortProviders.gpuIdentity(this@SettingsActivity)
+
+            readOnlyRow(
+                title = getString(R.string.setting_port_folder),
+                detail = getString(R.string.setting_port_folder_detail),
+                value = install.displayPath.substringAfterLast('/'),
+            )
+            readOnlyRow(
+                title = getString(R.string.setting_port_detected),
+                detail = buildString {
+                    append(identity.family ?: "GPU unknown")
+                    identity.architecture?.let { append(" · ").append(it.label) }
+                    append(" · Vulkan ").append(identity.vulkanVersion?.toString() ?: "unknown")
+                },
+                value = if (install.hasPatch) "patch installed" else "base game",
+            )
+
+            val currentHeight = snapshot?.renderHeight
+            val currentCap = snapshot?.frameLimit
+            readOnlyRow(
+                title = getString(R.string.setting_port_current),
+                detail = getString(R.string.setting_port_current_detail),
+                value = buildString {
+                    append(
+                        when {
+                            currentHeight == null -> "height default"
+                            currentHeight <= 0 -> "native height"
+                            else -> "${currentHeight}p"
+                        },
+                    )
+                    append(" · ")
+                    append(if (currentCap == null) "cap default" else if (currentCap == 0) "uncapped" else "$currentCap fps")
+                },
+            )
+
+            val recommended = PortPreset.recommendedFor(
+                identity,
+                DeviceProfile.landscapeHeight(
+                    resources.displayMetrics.widthPixels,
+                    resources.displayMetrics.heightPixels,
+                ),
+            )
+            if (tuner == null) {
+                actionRow(
+                    title = getString(R.string.setting_port_grant),
+                    detail = getString(R.string.setting_port_grant_detail),
+                    enabled = true,
+                ) { pickPortFolder() }
+                return@section
+            }
+
+            actionRow(
+                title = recommended.title,
+                detail = recommended.summary,
+                enabled = true,
+            ) { confirmApply(tuner, recommended) }
+
+            actionRow(
+                title = PortPreset.EMERGENCY.title,
+                detail = PortPreset.EMERGENCY.summary,
+                enabled = true,
+            ) { confirmApply(tuner, PortPreset.EMERGENCY) }
+
+            actionRow(
+                title = getString(R.string.setting_port_restore),
+                detail = getString(R.string.setting_port_restore_detail),
+                enabled = tuner.canRestore(),
+            ) {
+                when (val result = tuner.restore()) {
+                    is PortSettingsStore.Result.Written -> {
+                        showMessage(getString(R.string.setting_port_restored))
+                        rebuild()
+                    }
+                    is PortSettingsStore.Result.Failed -> showMessage(result.reason)
+                }
+            }
+        }
+    }
+
+    /** Asks before changing another app's settings, then reports what changed. */
+    private fun confirmApply(tuner: PortTuner, preset: PortPreset) {
+        AlertDialog.Builder(this)
+            .setTitle(preset.title)
+            .setMessage(
+                "${preset.summary}\n\n" +
+                    "This writes to the port's own settings file. The previous file is " +
+                    "saved first, and Restore puts it back.",
+            )
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.setting_port_apply) { _, _ ->
+                    when (val outcome = tuner.apply(preset)) {
+                        is PortTuner.Outcome.Applied -> {
+                            showMessage(
+                                getString(
+                                    R.string.setting_port_applied,
+                                    outcome.applied.entries.joinToString(", ") { "${it.key}=${it.value}" },
+                                ),
+                            )
+                            rebuild()
+                        }
+                    is PortTuner.Outcome.Refused -> showMessage(outcome.reason)
+                }
+            }
+            .show()
+    }
+
+    /** Rebuilds the screen so every row reflects the new state. */
+    private fun rebuild() {
+        binding.settingsSections.removeAllViews()
+        buildSections()
+    }
+
+    /** One short message, in the same shape as the rest of this screen. */
+    private fun showMessage(text: String) {
+        Toast.makeText(this@SettingsActivity, text, Toast.LENGTH_LONG).show()
+    }
+
+    /**
+     * The folder the user granted for the port, remembered across restarts.
+     *
+     * A grant is per-URI and is taken once; asking again on every visit would
+     * be both annoying and pointless. The URI is persisted, which is why the
+     * permission has to be taken with `FLAG_GRANT_PERSISTABLE_URI_PERMISSION`
+     * — a temporary grant would stop working the moment the screen closed.
+     */
+    private var portTree: DocumentFile? = null
+
+    private val portFolderPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }
+        portTree = DocumentFile.fromTreeUri(this, uri)
+        rebuild()
+    }
+
+    private fun pickPortFolder() = portFolderPicker.launch(null)
+
+    /** A tuner over the picked folder's settings, or null when they are absent. */
+    private fun tunerFor(tree: DocumentFile): PortTuner? {
+        val live = SafPortFiles.fileIn(contentResolver, tree) ?: return null
+        val backup = SafPortFiles.backupIn(contentResolver, tree) ?: return null
+        return PortTuner(PortSettingsStore.of(settings = live, backup = backup))
+    }
+
+    /** Restores the remembered port grant, if there is one. */
+    private fun loadPortTree() {
+        val remembered = contentResolver.persistedUriPermissions.firstOrNull {
+            it.isReadPermission && it.isWritePermission
+        } ?: return
+        portTree = DocumentFile.fromTreeUri(this, remembered.uri)
     }
 
     // ------------------------------------------------------------- 1 general
@@ -567,10 +786,29 @@ class SettingsActivity : AppCompatActivity() {
                 detail = getString(R.string.setting_device_capability_detail),
                 value = probeSummary(PROBE_RUNTIME) { RuntimeProbe.summary(it) },
             )
+            // Answered from what is actually installed rather than from a
+            // fixed string. This row used to say the runtime was not
+            // integrated and the launcher was a UI foundation, which it went
+            // on saying after Wine had been downloaded and had booted a
+            // prefix on the device.
+            // `this` is the SectionScope here, not a Context.
+            val missingPackages = RuntimeProviders.packaged(this@SettingsActivity).missing()
             readOnlyRow(
                 title = getString(R.string.setting_runtime_version),
-                detail = getString(R.string.runtime_overall_detail),
-                value = getString(R.string.status_not_integrated),
+                detail = getString(
+                    if (missingPackages.isEmpty()) {
+                        R.string.runtime_overall_detail_installed
+                    } else {
+                        R.string.runtime_overall_detail_none
+                    },
+                ),
+                value = getString(
+                    if (missingPackages.isEmpty()) {
+                        R.string.status_ready
+                    } else {
+                        R.string.status_not_integrated
+                    },
+                ),
             )
         }
     }

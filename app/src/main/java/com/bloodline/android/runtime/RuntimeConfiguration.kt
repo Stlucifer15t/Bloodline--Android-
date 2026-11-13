@@ -31,6 +31,15 @@ data class RuntimeConfiguration(
 
     /** Cap the game's frame rate, or null for uncapped. */
     val frameLimit: Int? = null,
+
+    /**
+     * `WINEDEBUG` for the guest, or null for [WineEnvironment.DEFAULT_WINE_DEBUG].
+     *
+     * Null means "the default", never "off". Silence is the one value that
+     * cannot be recovered from: with Wine mute, a crash has no explanation
+     * and the only thing left to report is an exit status.
+     */
+    val wineDebug: String? = null,
 ) {
 
     /** Settings that were explicitly chosen. Absent keys mean "you decide". */
@@ -40,6 +49,7 @@ data class RuntimeConfiguration(
         audioBackend?.let { put(KEY_AUDIO, it.id) }
         put(KEY_STRETCH, stretchToFill.toString())
         frameLimit?.let { put(KEY_FRAME_LIMIT, it.toString()) }
+        wineDebug?.let { put(KEY_WINE_DEBUG, it) }
     }
 
     companion object {
@@ -48,6 +58,7 @@ data class RuntimeConfiguration(
         const val KEY_AUDIO = "audio_backend"
         const val KEY_STRETCH = "stretch_to_fill"
         const val KEY_FRAME_LIMIT = "frame_limit"
+        const val KEY_WINE_DEBUG = "wine_debug"
 
         /** Reads back what [asMap] wrote. Unknown values become `null`. */
         fun fromMap(values: Map<String, String>): RuntimeConfiguration = RuntimeConfiguration(
@@ -56,6 +67,7 @@ data class RuntimeConfiguration(
             audioBackend = values[KEY_AUDIO]?.let { AudioBridge.fromId(it) },
             stretchToFill = values[KEY_STRETCH].toBoolean(),
             frameLimit = values[KEY_FRAME_LIMIT]?.toIntOrNull(),
+            wineDebug = values[KEY_WINE_DEBUG],
         )
     }
 }

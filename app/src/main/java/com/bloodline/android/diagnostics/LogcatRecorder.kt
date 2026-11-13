@@ -37,7 +37,16 @@ class LogcatRecorder(
      */
     fun startNewSession() {
         logsDirectory.mkdirs()
+        rotate()
+    }
 
+    /**
+     * Shifts the older logs along and clears the way for a new one.
+     *
+     * Called at the start of a session and again every time the current file
+     * fills, so the newest lines always survive.
+     */
+    private fun rotate() {
         // Shift the older files along, oldest dropped.
         for (index in maxFiles - 1 downTo 1) {
             val from = File(logsDirectory, "session.$index.log")
@@ -58,10 +67,15 @@ class LogcatRecorder(
         running = true
 
         thread = Thread {
+            // Two handles on the same writer: [out] is non-null so the write
+            // loop needs no null checks, and [writer] is the nullable one the
+            // finally block closes whether or not we ever got as far as
+            // opening it.
             var writer: BufferedWriter? = null
             var process: Process? = null
             try {
-                writer = BufferedWriter(FileWriter(currentLog, true))
+                var out = BufferedWriter(FileWriter(currentLog, true))
+                writer = out
                 process = ProcessBuilder("logcat", "-v", "time")
                     .redirectErrorStream(true)
                     .start()
@@ -70,10 +84,31 @@ class LogcatRecorder(
                     var written = 0L
                     for (line in lines) {
                         if (!running) break
-                        // A hard cap keeps a runaway log from filling storage.
-                        if (written > maxBytesPerFile) break
-                        writer.write(line)
-                        writer.newLine()
+
+                        // Roll over at the cap instead of stopping dead.
+                        //
+                        // This used to `break`, which kept the FIRST n bytes
+                        // and threw away everything after. For a log that is
+                        // the wrong end: the interesting part of a crash is
+                        // the last thing that happened, and a session that
+                        // ran long enough to fill one file lost precisely
+                        // the lines describing how it ended. The first log
+                        // off a real device stopped mid-prefix and never
+                        // recorded the game starting, let alone dying.
+                        //
+                        // Storage is still bounded: only [maxFiles] files
+                        // are kept, and the oldest is dropped on each roll.
+                        if (written > maxBytesPerFile) {
+                            runCatching { out.flush() }
+                            runCatching { out.close() }
+                            rotate()
+                            out = BufferedWriter(FileWriter(currentLog, true))
+                            writer = out
+                            written = 0L
+                        }
+
+                        out.write(line)
+                        out.newLine()
                         written += line.length + 1
                     }
                 }

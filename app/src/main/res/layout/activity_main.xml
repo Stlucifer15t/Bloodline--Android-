@@ -606,14 +606,58 @@
             android:enabled="false"
             android:text="@string/launch_game" />
 
+        <!--
+            Tappable: it is the only thing on screen that knows why the button
+            above it is off, so it opens the full reason. The selectable
+            background is what makes that discoverable — a line of grey text
+            that does something has to look like it does something.
+        -->
         <TextView
             android:id="@+id/launchHint"
             style="@style/Text.Caption"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/space_3"
+            android:background="?android:attr/selectableItemBackground"
             android:gravity="center"
+            android:minHeight="@dimen/row_min_height"
+            android:paddingStart="@dimen/space_2"
+            android:paddingEnd="@dimen/space_2"
             android:text="@string/launch_locked_no_runtime" />
+
+        <!--
+            Bringing Wine up runs the version check, wineboot and a 32-bit
+            program, and their timeouts alone add up to more than five minutes.
+            Without this the Launch button greys out and the screen says nothing
+            at all for that whole time, which is indistinguishable from a button
+            that simply does not work.
+        -->
+        <LinearLayout
+            android:id="@+id/launchProgress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_3"
+            android:orientation="vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <ProgressBar
+                android:id="@+id/launchProgressBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:indeterminate="true" />
+
+            <TextView
+                android:id="@+id/launchProgressText"
+                style="@style/Text.RowDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_2"
+                android:gravity="center"
+                tools:text="Creating the Windows prefix (3 of 5)…" />
+
+        </LinearLayout>
 
         <Button
             android:id="@+id/settingsButton"

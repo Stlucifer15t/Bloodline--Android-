@@ -57,6 +57,40 @@ class ProcessRunnerTest {
     }
 
     @Test
+    fun `a program killed by a signal is reported as crashing, not as exiting`() {
+        // 139 is not "exited with 139": it is 128 + 11, SIGSEGV. This is what
+        // Wine's 32-bit test program returned on a real device, and reading
+        // the raw integer is what made a Wine crash look like a launcher bug.
+        if (!hasShell()) return
+
+        // $$ is the shell's own pid, and it needs escaping here or Kotlin
+        // reads it as the start of a string template.
+        val outcome = shell("kill -SEGV ${'$'}${'$'}")
+
+        assertTrue(outcome is Outcome.Exited)
+        assertEquals(139, (outcome as Outcome.Exited).exitCode)
+        assertEquals(11, outcome.signal)
+        assertTrue(outcome.describe(), outcome.describe().contains("SIGSEGV"))
+        assertFalse(outcome.describe().contains("exited with 139"))
+    }
+
+    @Test
+    fun `a signal with no name is still reported as a signal`() {
+        val outcome = Outcome.Exited(128 + 42, emptyList(), 12L)
+
+        assertEquals(42, outcome.signal)
+        assertTrue(outcome.describe(), outcome.describe().contains("signal 42"))
+    }
+
+    @Test
+    fun `an ordinary exit code is not mistaken for a signal`() {
+        val outcome = Outcome.Exited(3, emptyList(), 12L)
+
+        assertEquals(null as Int?, outcome.signal)
+        assertTrue(outcome.describe().contains("exited with 3"))
+    }
+
+    @Test
     fun `a program that succeeds is reported as succeeding`() {
         if (!hasShell()) return
 

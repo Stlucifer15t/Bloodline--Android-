@@ -73,6 +73,13 @@ class GameInstallScanner(
             it.isDirectory && it.name.equals(DATA_DIRECTORY_NAME, ignoreCase = true)
         }
 
+        // Wesp5's Unofficial Patch is the same kind of neighbour: a folder the
+        // engine loads by name. Optional, so it is recorded rather than
+        // required, and it must be found here so the launch can select it.
+        val hasUnofficialPatch = entries.any {
+            it.isDirectory && it.name.equals(PATCH_DIRECTORY_NAME, ignoreCase = true)
+        }
+
         val found = ArrayList<GameInstall>()
         for (entry in entries) {
             if (entry.name.startsWith(".")) continue
@@ -84,6 +91,7 @@ class GameInstallScanner(
                 found += GameInstall(
                     location = folder.location,
                     hasDataDirectory = hasDataDirectory,
+                    hasUnofficialPatch = hasUnofficialPatch,
                 )
             } else if (entry.isDirectory) {
                 found += scan(entry.folder(), depth + 1, counter)
@@ -133,6 +141,9 @@ class GameInstallScanner(
 
         /** Source engine data folder that must sit next to the executable. */
         const val DATA_DIRECTORY_NAME = "Vampire"
+
+        /** Wesp5's Unofficial Patch, an optional mod folder loaded by name. */
+        const val PATCH_DIRECTORY_NAME = "Unofficial_Patch"
 
         /**
          * How deep to walk. Keeps the scan cheap and predictable even when a

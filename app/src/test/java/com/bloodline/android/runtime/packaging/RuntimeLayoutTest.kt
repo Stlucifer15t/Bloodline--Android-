@@ -3,6 +3,7 @@ package com.bloodline.android.runtime.packaging
 import com.bloodline.android.runtime.WineFlavour
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -112,6 +113,22 @@ class RuntimeLayoutTest {
     }
 
     @Test
+    fun `the WoW64 DLL is only reported as in the prefix once it is there`() {
+        // The copy runs before the prefix exists, so "we copied it" and "Wine
+        // can find it" are different claims. Only the second one matters, and
+        // a report that conflated them would send someone looking in the wrong
+        // place for a crash that is really a missing host DLL.
+        val layout = RuntimeLayout(filled())
+
+        assertNull(layout.wow64DllInPrefix(WineFlavour.WOW64_BOX64))
+
+        layout.wow64TargetDirectory().mkdirs()
+        java.io.File(layout.wow64TargetDirectory(), "wowbox64.dll").writeBytes(byteArrayOf(0x4d, 0x5a))
+
+        assertNotNull(layout.wow64DllInPrefix(WineFlavour.WOW64_BOX64))
+    }
+
+    @Test
     fun `the WoW64 DLL goes into the prefix, not beside the packages`() {
         // Wine looks for it in drive_c/windows/system32. Unpacking it neatly
         // into its own directory would leave the game unable to start.
@@ -131,5 +148,52 @@ class RuntimeLayoutTest {
         val libs = RuntimeLayout(store).libDirs()
 
         assertTrue(libs.first().path.contains("wine"))
+    }
+
+    @Test
+    fun `the WoW64 package directory is on the library search path`() {
+        // wowbox64.dll links against libbox64.so, which lives in the WOWBox64
+        // package. If that directory is not searched, the DLL loads and then
+        // fails to resolve its own dependency.
+        val store = store()
+        put(store, RuntimePackageCatalog.WINE_ARM64EC, "bin/wine")
+        put(store, RuntimePackageCatalog.WOWBOX64, "wowbox64.dll")
+
+        val libs = RuntimeLayout(store).libDirs()
+
+        assertTrue(
+            libs.any { it.path.contains("wowbox64", ignoreCase = true) },
+        )
+    }
+
+    @Test
+    fun `the game folder is mapped to drive D in the prefix`() {
+        val store = store()
+        val game = temporary.newFolder("Bloodlines")
+        val layout = RuntimeLayout(store)
+
+        val link = layout.mapGameDrive(game)
+
+        assertNotNull(link)
+        assertEquals("D:", link!!.name)
+        assertEquals(
+            game.toPath(),
+            java.nio.file.Files.readSymbolicLink(link.toPath()),
+        )
+        assertEquals(layout.dosDevicesDirectory(), link.parentFile)
+    }
+
+    @Test
+    fun `mapping the same folder twice is idempotent`() {
+        val store = store()
+        val game = temporary.newFolder("Bloodlines")
+        val layout = RuntimeLayout(store)
+
+        val first = layout.mapGameDrive(game)
+        val second = layout.mapGameDrive(game)
+
+        assertNotNull(first)
+        assertNotNull(second)
+        assertTrue(java.nio.file.Files.isSymbolicLink(second!!.toPath()))
     }
 }

@@ -39,12 +39,62 @@ NDK 27 (CMake 3.22.1) on `ubuntu-latest`, producing a ~3.3 MB debug APK
 | Cached install metadata (fast reopen, no needless rescan) | ✅ Done |
 | Automatic crash reports (session detection, ZIP, save/share/delete) | ✅ Done |
 | Touch HUD / on-screen controls | ❌ Does not exist yet |
-| Wine (Windows API) | ❌ Not integrated |
-| Box86 / Box64 (x86 → ARM64) | ❌ Not integrated |
-| Rootless container / glibc userland | ❌ Not integrated |
-| Graphics translation | ❌ Not integrated |
-| Audio bridge | ❌ Not integrated |
-| Launching the game | ❌ Impossible until the above exist |
+| Wine (Windows API) | ✅ Acquired at first run (ARM64EC, LGPL-2.1) |
+| WoW64 — 32-bit x86 on ARM64 (WOWBox64 / FEX) | ✅ Acquired at first run |
+| Rootless container / glibc userland | Not required — the runtime is Bionic |
+| Graphics translation | ⚠️ Configured (GLES wrapper + WineD3D); **no display server yet** |
+| Audio bridge | ⚠️ Configured; ALSA plugin not shipped |
+| Unofficial Patch selection (`-game Unofficial_Patch`) | ✅ Implemented, unit tested |
+| Launching the game | ⚠️ The command is built, the drive is mapped and the patch is selected — but Wine has no display to draw into yet |
+
+### Two runtimes, and which one runs
+
+There are two different ways to play Bloodlines on this phone, and the
+difference decides everything:
+
+| | Wine path (this app's runtime) | Native port path |
+| --- | --- | --- |
+| What runs | `Vampire.exe` under Wine + WoW64 | the engine recompiled to ARM64 |
+| On this device | **blocked** — Android refuses to map a PE image executable | **works** |
+| Who maintains it | this project | a third-party APK (`com.vtmb.lift`) |
+| What this app does | builds and launches it | **tunes it**: presets, PanVK driver, restore |
+
+The Wine path is still here and still correct — it stops at a platform
+restriction that no configuration can lift, recorded in
+[`docs/DEVICE_REPORT_2_2026-11-13.md`](docs/DEVICE_REPORT_2_2026-11-13.md).
+The native port is not blocked, so that is where a visible difference can be
+made, and `port/` is the layer that does it.
+
+### Tuning the native port
+
+`Settings → Native port` does four things:
+
+* **Reads the port's own settings**, preserving keys it does not understand and
+  the order of the file, so controller bindings are never lost.
+* **Picks a preset from the device**: a 30 fps cap, a render height below the
+  panel, and the GLES renderer when Vulkan is too old for DXVK. Every key it
+  writes is one the port itself owns.
+* **Keeps a backup** before the first change, kept beside the settings so a
+  restore survives this app's data being cleared.
+* **Gates a PanVK driver** on what the GPU actually is. `gpuinfo` is root-only
+  on the measured device, so the GPU comes from an EGL context instead, and a
+  package is only offered when its architecture table covers that GPU.
+
+Writes go through the Storage Access Framework, not a path: on Android 14 a path
+write into shared storage is refused even with `WRITE_EXTERNAL_STORAGE`
+granted, which was measured rather than assumed.
+
+### Where the launch actually stands
+
+The launcher no longer stops at "runtime not integrated". It downloads Wine
+(ARM64EC) and a WoW64 layer, validates the executable, brings up a prefix,
+copies the WoW64 DLL into it, **maps the game folder to `D:`**, selects the
+Unofficial Patch with `-game`, and starts the process.
+
+What is still missing is the layer that turns a window into pixels: an X server
+(Winlator runs its own), a GLES/EGL renderer, and a SysV shared-memory bridge.
+Without those the game starts and dies with a display error, which is exactly
+what the diagnostics report now shows instead of hiding.
 
 **There is no Windows compatibility runtime in this repository**, and this app is
 **not** a reskin of Winlator: nothing here requires a separate Winlator install.

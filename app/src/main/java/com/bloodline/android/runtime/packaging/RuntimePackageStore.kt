@@ -42,6 +42,42 @@ class RuntimePackageStore(
     /** Prefix directory Wine keeps its virtual Windows in. */
     fun prefixDir(): File = File(root, "prefix")
 
+    /**
+     * Record of the last successful Wine initialisation.
+     *
+     * `wine --version`, `wineboot`, every registry write and the 32-bit test
+     * each cost a Wine process on a phone; on a mid-range device that is
+     * minutes, every single launch. The prefix does not change between
+     * launches, so the record is what lets a repeat launch skip straight to
+     * running the game.
+     *
+     * The record names the Wine package version and the prefix's identity, so
+     * a re-downloaded Wine or a deleted prefix invalidates it by itself rather
+     * than by anyone remembering to call [clear].
+     */
+    fun initialisationMarker(): File = File(root, "prefix/.initialised")
+
+    /**
+     * The fingerprint that the initialisation record is valid for.
+     *
+     * Covers what the skipped stages actually depended on: the Wine build, the
+     * WoW64 layer, and the prefix itself. Anything else changing (graphics
+     * settings, for instance) does not invalidate the prefix.
+     */
+    fun initialisationFingerprint(flavour: String): String = buildList {
+        add("wine=${stateDescription(RuntimePackageCatalog.WINE_ARM64EC)}")
+        add("wow64=${stateDescription(RuntimePackageCatalog.WOWBOX64)}")
+        add("flavour=$flavour")
+        add("prefix=${prefixDir().isDirectory}")
+    }.joinToString(";")
+
+    private fun stateDescription(pack: RuntimePackage): String =
+        when (val state = stateOf(pack)) {
+            is InstallState.Installed -> "${pack.id}/${state.version}"
+            is InstallState.Stale -> "${pack.id}/${state.installed}->${state.expected}"
+            InstallState.Missing -> "${pack.id}/missing"
+        }
+
     /** Every marker file, whatever package it belongs to. */
     private fun marker(pack: RuntimePackage): File =
         File(packageDir(pack), ".installed")

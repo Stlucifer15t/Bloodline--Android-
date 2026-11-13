@@ -81,14 +81,30 @@ class ProcessRunner : CommandRunner {
             val exitCode: Int,
             val output: List<String>,
             val durationMillis: Long,
+            /** The process id, when the platform would tell us. */
+            val pid: Long? = null,
         ) : Outcome {
+
             val succeeded: Boolean get() = exitCode == 0
+
+            /**
+             * The signal that killed it, or null when it really did exit.
+             *
+             * A process killed by a signal comes back from `waitFor` as
+             * 128 + signal, so 139 is not "exited with 139": it is signal 11,
+             * SIGSEGV, a segmentation fault. Printing the raw integer leaves
+             * the one person who has to act on it reading a number and
+             * guessing, which is how a Wine crash gets mistaken for a
+             * launcher bug.
+             */
+            val signal: Int? get() = if (exitCode in 129..191) exitCode - 128 else null
         }
 
         /** It was still running when the timeout expired, and was killed. */
         data class TimedOut(
             val output: List<String>,
             val timeoutMs: Long,
+            val pid: Long? = null,
         ) : Outcome
 
         /** It never started. */
@@ -99,15 +115,58 @@ class ProcessRunner : CommandRunner {
 
         /** One line for a report. */
         fun describe(): String = when (this) {
-            is Exited -> "exited with $exitCode after ${durationMillis}ms"
+            is Exited -> {
+                val killed = signal
+                if (killed != null) {
+                    "crashed with ${SIGNAL_NAMES[killed] ?: "signal $killed"} " +
+                        "after ${durationMillis}ms"
+                } else {
+                    "exited with $exitCode after ${durationMillis}ms"
+                }
+            }
             is TimedOut -> "was killed after ${timeoutMs}ms with no exit status"
             is Failed -> "did not start: $reason"
         }
+
+        companion object {
+
+            /**
+             * What killed a process, for the handful of signals that turn up
+             * here.
+             *
+             * A crash is reported by signal, not by exit code: 139 means
+             * SIGSEGV, and "crashed with SIGSEGV" is the sentence that tells
+             * someone the program touched memory it did not own, where
+             * "exited with 139" tells them nothing.
+             */
+            private val SIGNAL_NAMES = mapOf(
+                2 to "SIGINT",
+                4 to "SIGILL",
+                5 to "SIGTRAP",
+                6 to "SIGABRT",
+                7 to "SIGBUS",
+                8 to "SIGFPE",
+                9 to "SIGKILL",
+                11 to "SIGSEGV",
+                13 to "SIGPIPE",
+                15 to "SIGTERM",
+            )
+        }
     }
 
-    /** A process that is still running, so a caller can stop it. */
-    fun interface Handle {
+    /**
+     * A process that is still running, so a caller can stop it.
+     *
+     * [pid] is exposed because it is the thing that makes the rest of the
+     * evidence usable: a tombstone in logcat, an `ActivityManager` line, or
+     * a `/proc` entry can only be tied to *this* run through it. Without it
+     * a crash dump is just a crash dump, and there is no way to prove it was
+     * our process rather than one of Wine's.
+     */
+    interface Handle {
         fun cancel()
+
+        val pid: Long?
     }
 
     /**
@@ -146,13 +205,13 @@ class ProcessRunner : CommandRunner {
             if (!finished) {
                 process.destroyForcibly()
                 reader.join(DRAIN_JOIN_MS)
-                Outcome.TimedOut(output.toList(), request.timeoutMs)
+                Outcome.TimedOut(output.toList(), request.timeoutMs, pidOf(process))
             } else {
                 // The process has gone, so the pipe is at or near EOF. Bounded
                 // rather than open-ended: a child that forked and left a
                 // grandchild holding the pipe open must not wedge the launcher.
                 reader.join(DRAIN_JOIN_MS)
-                Outcome.Exited(process.exitValue(), output.toList(), duration)
+                Outcome.Exited(process.exitValue(), output.toList(), duration, pidOf(process))
             }
         } catch (error: InterruptedException) {
             process.destroyForcibly()
@@ -192,7 +251,7 @@ class ProcessRunner : CommandRunner {
             start(request)
         } catch (error: IOException) {
             onExit(Outcome.Failed(translate(error, request)))
-            return Handle { }
+            return handle(null)
         }
 
         val thread = Thread({
@@ -206,7 +265,12 @@ class ProcessRunner : CommandRunner {
                     }
                 }
                 process.waitFor()
-                Outcome.Exited(process.exitValue(), output.toList(), System.currentTimeMillis() - startedAt)
+                Outcome.Exited(
+                    process.exitValue(),
+                    output.toList(),
+                    System.currentTimeMillis() - startedAt,
+                    pidOf(process),
+                )
             } catch (error: Exception) {
                 Outcome.Failed(translate(error, request), output.toList())
             }
@@ -214,7 +278,31 @@ class ProcessRunner : CommandRunner {
         }, "bloodline-runtime").apply { isDaemon = true }
 
         thread.start()
-        return Handle { process.destroyForcibly() }
+        return handle(process)
+    }
+
+    /**
+     * The child's process id, or null when the platform will not say.
+     *
+     * `Process.pid()` is only present on newer Android, and reaching for it
+     * directly would tie this class to one API level. Reflection is the
+     * honest trade: we ask, and if the answer is not there we record that we
+     * could not find out, rather than inventing a number or pretending the
+     * question does not matter.
+     */
+    private fun pidOf(process: Process): Long? = runCatching {
+        val method = process.javaClass.getMethod("pid")
+        (method.invoke(process) as? Number)?.toLong()
+    }.getOrNull()
+
+    private fun handle(process: Process?): Handle {
+        val pid = process?.let { pidOf(it) }
+        return object : Handle {
+            override val pid: Long? = pid
+            override fun cancel() {
+                process?.destroyForcibly()
+            }
+        }
     }
 
     private fun start(request: Request): Process {

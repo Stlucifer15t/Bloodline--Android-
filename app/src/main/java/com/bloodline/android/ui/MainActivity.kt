@@ -66,7 +66,9 @@ import com.bloodline.android.runtime.RuntimeCapabilities
 import com.bloodline.android.runtime.RuntimeCapabilitiesReader
 import com.bloodline.android.runtime.RuntimeComponent
 import com.bloodline.android.runtime.RuntimeDiagnostics
+import com.bloodline.android.runtime.LastRunStore
 import com.bloodline.android.runtime.RuntimeHost
+import com.bloodline.android.runtime.WineInitialiser
 import com.bloodline.android.runtime.RuntimeManager
 import com.bloodline.android.runtime.RuntimeProbe
 import com.bloodline.android.runtime.PackagedRuntimeProvider
@@ -83,7 +85,9 @@ import com.bloodline.android.settings.UiScaleApplier
 import com.bloodline.android.storage.DocumentFolder
 import com.bloodline.android.storage.GameFolderStore
 import com.bloodline.android.storage.SharedPreferencesInstallMetadataStore
+import com.bloodline.android.storage.SafPathResolver
 import com.bloodline.android.storage.StorageLocations
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -123,6 +127,21 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     /** Background thread for one-off work that must never block the UI. */
     private val background: ExecutorService = Executors.newSingleThreadExecutor()
 
+    /**
+     * A launch has its own thread, and not [background].
+     *
+     * [background] is a single thread shared by the validation, the device
+     * probes, the runtime download and report generation. Bringing Wine up runs
+     * `wine --version`, `wineboot` and a 32-bit program, whose timeouts alone
+     * add up to more than five minutes — so a launch on that thread froze every
+     * one of those jobs, and froze the screen with them.
+     */
+    private val launchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /** Guards against two Wine bring-ups racing each other. */
+    @Volatile
+    private var launching = false
+
     private lateinit var diagnostics: DiagnosticsManager
 
     private var install: GameInstall? = null
@@ -157,6 +176,12 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     private var glRenderer: String = ""
     private var glesVersion: String = ""
 
+    /** How the last game run ended, for the diagnostics report. */
+    private var lastExit: GameProcessManager.ExitResult? = null
+
+    /** Survives the app being killed, so a later report still has the run. */
+    private val lastRunStore by lazy { LastRunStore(File(filesDir, "runtime/last-run.txt")) }
+
     /**
      * Owns the launch lifecycle.
      *
@@ -188,15 +213,37 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         runtimeOutput.append(line).append('\n')
     }
 
+    /**
+     * What the game itself printed, and nothing else.
+     *
+     * Everything Wine says still goes to [runtimeOutput]. This one is separate
+     * because the prefix talks far more than the game does: the first log off
+     * a real device was 2055 lines of `wineboot` and not one line from the
+     * game, because the buffer had already been spent before the game started.
+     */
+    private val gameOutput = StringBuffer()
+
+    private fun recordGameOutput(line: String) {
+        if (gameOutput.length >= RUNTIME_OUTPUT_LIMIT) return
+        gameOutput.append(line).append('\n')
+    }
+
     private val runtimeHost by lazy {
         RuntimeHost(
             host = this,
-            manager = RuntimeProviders.manager(this, onOutput = ::recordRuntimeOutput),
+            manager = RuntimeProviders.manager(
+                this,
+                onOutput = ::recordRuntimeOutput,
+                onGameOutput = ::recordGameOutput,
+            ),
         )
     }
 
     /** What reading the executable's header said, or null when not yet read. */
     private var installValidation: InstallValidation? = null
+
+    /** The last launch attempt in full, or null when the last one did not fail. */
+    private var launchFailure: String? = null
 
     private val probeCache: ProbeCache by lazy { ProbeCache(this) }
     private var nativeHostingStatus: IntegrationStatus = IntegrationStatus.NOT_INTEGRATED
@@ -289,6 +336,11 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             runGraphicsProbe()
         }
 
+        // The GL strings are read on every start, cached probe or not. See
+        // [measureGpuStrings]: reading them only inside the probe meant the
+        // second and every later launch believed this device had no GPU.
+        measureGpuStrings()
+
         val cachedProcess = probeCache.load(PROBE_PROCESS, BuildConfig.VERSION_NAME)
         if (cachedProcess != null) {
             processProbeResult =
@@ -302,6 +354,9 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
         binding.importButton.setOnClickListener { folderPicker.launch(null) }
         binding.launchButton.setOnClickListener { onLaunchClicked() }
+        // The hint is the only thing on screen that knows why the button above
+        // it is off, so it opens the full reason on a tap.
+        binding.launchHint.setOnClickListener { showLaunchBlockDetail() }
         binding.runtimeInstallButton.setOnClickListener { offerRuntimeInstall() }
         binding.settingsButton.setOnClickListener {
             settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
@@ -397,18 +452,124 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      */
     override fun onPhaseChanged(phase: RuntimeManager.Phase) = runOnUiThread {
         if (isFinishing || isDestroyed) return@runOnUiThread
-        binding.launchHint.text = RuntimeDiagnostics.describePhase(phase)
+        binding.launchHint.text = if (phase is RuntimeManager.Phase.InGame) {
+            // Said plainly rather than as "in game": there is no surface in
+            // this build, so a process that reached this phase is running with
+            // nowhere to draw, and the screen is not going to change.
+            getString(R.string.launch_in_game_no_surface)
+        } else {
+            RuntimeDiagnostics.describePhase(phase)
+        }
     }
 
-    override fun onFinished(message: String) = runOnUiThread {
+    override fun onLaunchProgress(message: String) = runOnUiThread {
+        if (isFinishing || isDestroyed) return@runOnUiThread
+        binding.launchProgress.isVisible = true
+        binding.launchProgressText.text = message
+    }
+
+    override fun onWineWarning(failed: WineInitialiser.StageResult) = runOnUiThread {
+        if (isFinishing || isDestroyed) return@runOnUiThread
+        binding.launchProgress.isVisible = true
+        binding.launchProgressText.text =
+            getString(R.string.wine_32bit_check_warning, failed.describe())
+    }
+
+    override fun onFinished(message: String, exit: GameProcessManager.ExitResult?) = runOnUiThread {
+        // A game that crashed is a failure that arrives here, not through
+        // onError, and a toast is one line. Without this the one outcome we
+        // most need explained — the game itself dying — is the one with no
+        // evidence attached to it. A clean exit is not a failure and gets
+        // nothing.
+        if (exit != null) {
+            lastExit = exit
+            // Written straight away, because the record has to outlive this
+            // process. A crash is investigated after the fact, and often after
+            // the app itself has been killed — which is precisely when an
+            // in-memory record is gone and a report generated on request can
+            // say nothing but "the previous session did not finish".
+            lastRunStore.save(exit)
+        }
+        if (exit != null && exit.reason != GameProcessManager.ExitReason.CLEAN &&
+            exit.reason != GameProcessManager.ExitReason.STOPPED
+        ) {
+            launchFailure = describeLaunchFailure(message, gameRan = true)
+        }
         showMessage(message)
         updateLaunchState()
     }
 
     override fun onError(message: String) = runOnUiThread {
+        // Kept, not just shown: a toast is one line and it disappears. What
+        // failed is Wine, and its own output is the only evidence for why.
+        launchFailure = describeLaunchFailure(message)
         showMessage(message)
         updateLaunchState()
     }
+
+    /**
+     * The last launch attempt, in more than a toast's worth of words.
+     *
+     * Everything the run printed is already kept for the diagnostics report,
+     * so it is put on screen here rather than making someone generate a ZIP
+     * to discover that a Windows program segfaulted.
+     */
+    private fun describeLaunchFailure(message: String, gameRan: Boolean = false): String = buildString {
+        // Which build produced this, and what Wine was asked to print.
+        // Without these two a pasted failure cannot be told apart from an
+        // older build's, and that ambiguity already cost a round: the same
+        // one-line message came from a Wine that had been told to stay
+        // silent and from one that had not, with no way to know which.
+        val debug = runtimeHost.plannedEnvironment()["WINEDEBUG"]
+        appendLine(
+            getString(
+                R.string.launch_failure_build,
+                BuildConfig.VERSION_NAME,
+                BuildConfig.VERSION_CODE,
+                debug ?: "unset",
+            ),
+        )
+        appendLine()
+        appendLine(message)
+
+        val report = runtimeHost.initialisation()
+        if (report != null) {
+            appendLine()
+            appendLine(report.describe())
+        }
+
+        // Whose output this is matters more than having output. When the game
+        // itself ran, the tail is the game's, and that is the only thing that
+        // answers the question. When it never started, the tail belongs to the
+        // stage that stopped it — and putting those under one heading is how
+        // a probe's crash gets mistaken for the game's.
+        if (gameRan) {
+            // The game's own buffer first. It is the only place the game's
+            // words can survive wineboot; falling back to everything is right
+            // only when the game said nothing at all.
+            val printed = gameOutput.toString().trim().ifBlank {
+                runtimeOutput.toString().trim()
+            }
+            if (printed.isNotBlank()) {
+                appendLine()
+                appendLine(getString(R.string.launch_failure_game_output_heading))
+                append(printed.split('\n').takeLast(LAST_OUTPUT_LINES).joinToString("\n"))
+            }
+        } else {
+            val failed = report?.failedAt
+            val output = failed?.let { report.outputOf(it.stage) }.orEmpty()
+            if (output.isNotEmpty()) {
+                appendLine()
+                appendLine(
+                    getString(
+                        R.string.launch_failure_output_heading,
+                        failed?.stage?.title.orEmpty(),
+                    ),
+                )
+                append(output.takeLast(LAST_OUTPUT_LINES).joinToString("\n"))
+            }
+        }
+    }.trimEnd()
 
     // ---------------------------------------------------------------- content
 
@@ -519,13 +680,18 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         val all = runtimeComponents()
         val components = all.associateBy { it.id }
 
+        val overall = RuntimeRegistry.overallOf(all)
         bindStatusRow(
             binding.runtimeOverall,
             RuntimeComponent(
                 id = "overall",
                 title = getString(R.string.runtime_overall_label),
-                detail = getString(R.string.runtime_overall_detail),
-                status = RuntimeRegistry.overallOf(all),
+                // Derived from the status this row is about to draw, so the
+                // two cannot disagree. It used to be one fixed string saying
+                // the runtime was not integrated, which it kept saying after
+                // Wine had been downloaded and had booted a prefix.
+                detail = getString(overall.detailRes()),
+                status = overall,
             ),
         )
         bindNativeRow(component(components, ComponentIds.NATIVE_HOSTING))
@@ -583,6 +749,20 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         IntegrationStatus.READY -> R.string.status_ready
         IntegrationStatus.PARTIAL -> R.string.status_partial
         IntegrationStatus.NOT_INTEGRATED -> R.string.status_not_integrated
+    }
+
+    /**
+     * What the aggregate runtime status means, in a sentence.
+     *
+     * Kept next to [IntegrationStatus.labelRes] for the same reason: the
+     * launcher used to print one fixed line about shipping as a UI foundation
+     * while the card underneath it said Wine was installed and the device had
+     * been measured.
+     */
+    private fun IntegrationStatus.detailRes(): Int = when (this) {
+        IntegrationStatus.READY -> R.string.runtime_overall_detail_ready
+        IntegrationStatus.PARTIAL -> R.string.runtime_overall_detail_partial
+        IntegrationStatus.NOT_INTEGRATED -> R.string.runtime_overall_detail_none
     }
 
     // ------------------------------------------------------------ game status
@@ -645,21 +825,55 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                             "may have been revoked, or the card removed.",
                     )
 
-                val entries = folder.entries().associate { it.name to it.isDirectory }
-                val executable = folder.entries().firstOrNull {
-                    it.name == InstallationValidator.EXECUTABLE_NAME && !it.isDirectory
+                // Listed once: over the Storage Access Framework every entry is
+                // a binder call, and the old code listed the folder twice to
+                // build the name map and then find the executable again.
+                val listed = folder.entries()
+                val entries = listed.associate { it.name to it.isDirectory }
+
+                // Matched without case, for the same reason the validator does
+                // the same: the scanner found this folder with ignoreCase, and
+                // an exact-match lookup here lost the file again on any copy
+                // that arrived as VAMPIRE.EXE.
+                val executable = listed.firstOrNull {
+                    it.name.equals(InstallationValidator.EXECUTABLE_NAME, ignoreCase = true) &&
+                        !it.isDirectory
                 }
                 val stream = executable?.stream()
                     ?: return@runCatching InstallValidation.Invalid(
                         path = found.location.displayPath,
-                        reason = "The executable could not be opened for reading.",
+                        reason = "Vampire.exe could not be opened for reading. Android " +
+                            "refused access to the file — use Import Game Files to renew " +
+                            "the permission for that folder.",
+                        detail = InstallationValidator.EXECUTABLE_NAME,
                     )
+                val executableName = executable.name
 
-                InstallationValidator.validate(
+                val validation = InstallationValidator.validate(
                     path = found.location.displayPath,
                     entries = entries,
                     openExecutable = { stream },
                 )
+
+                // A folder picked through the Storage Access Framework is a
+                // `content://` tree, which a native Wine process cannot read.
+                // The tree's document id still names the real path, so recover
+                // it here: the launch command needs a path on disk, not a URI.
+                val resolved = if (validation is InstallValidation.Valid) {
+                    SafPathResolver.resolve(this, found.location)
+                } else {
+                    null
+                }
+                if (validation is InstallValidation.Valid && resolved != null) {
+                    validation.copy(
+                        install = validation.install.copy(
+                            rootPath = resolved.absolutePath,
+                            executablePath = File(resolved, executableName).absolutePath,
+                        ),
+                    )
+                } else {
+                    validation
+                }
             }.getOrElse { error ->
                 InstallValidation.Invalid(
                     path = found.location.displayPath,
@@ -671,24 +885,69 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 installValidation = result
                 runtimeHost.setValidation(result)
+                applyValidationToInstallCard()
                 updateLaunchState()
             }
         }
     }
 
     /**
+     * Folds the validation result into the installation card.
+     *
+     * Without this the card and the launch button describe the same folder in
+     * two voices that disagree: the card is drawn from the scan, which only
+     * matches names, so it says "game files detected" in green for a folder the
+     * validator has just refused. The refusal is the more recent and more
+     * specific finding, so it wins.
+     */
+    private fun applyValidationToInstallCard() {
+        val invalid = installValidation as? InstallValidation.Invalid ?: return
+        binding.installStatus.rowDetail.text = invalid.reason
+        applyStatus(binding.installStatus, IntegrationStatus.PARTIAL)
+    }
+
+    /**
      * Opens GPU device nodes and creates an EGL context, so it stays off the
      * main thread - an EGL context belongs to the thread that made it.
      */
+    /**
+     * Reads the GL renderer and GLES version, and feeds them to the runtime.
+     *
+     * Done on every start rather than only when the graphics probe has to
+     * run, which is what used to happen: the strings were read inside
+     * [runGraphicsProbe], so the *first* launch — the one with an empty cache
+     * — measured the GPU, and every launch after it read a cached probe and
+     * saw empty strings.
+     *
+     * The effect was that from the second start onwards the device had no
+     * GPU as far as the runtime was concerned: GLES 3.1 was reported as
+     * unsupported, the renderer the user had chosen was rejected for a
+     * requirement the device actually met, and the launcher fell back to
+     * software rendering — which is what a report from a real device showed,
+     * with "GPU renderer: unknown" sitting two lines above a device section
+     * that named a Mali-G52 and OpenGL ES 3.2.
+     *
+     * Off the main thread because an EGL context belongs to the thread that
+     * created it, and creating one is not free.
+     */
+    private fun measureGpuStrings() {
+        background.execute {
+            val gpu = runCatching { GpuInfo.probe() }.getOrNull()
+            val renderer = gpu?.renderer.orEmpty()
+            val version = gpu?.glVersion.orEmpty()
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                glRenderer = renderer
+                glesVersion = version
+                refreshCapabilities()
+            }
+        }
+    }
+
     private fun runGraphicsProbe() {
         background.execute {
             val result = GraphicsProbe.run(this)
-
-            // GL strings need an EGL context, and an EGL context belongs to
-            // the thread that created it, so they are read here.
-            val gpu = runCatching { GpuInfo.probe() }.getOrNull()
-            glRenderer = gpu?.renderer.orEmpty()
-            glesVersion = gpu?.glVersion.orEmpty()
 
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -889,7 +1148,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         binding.launchHint.text = when (state) {
             LaunchState.Ready -> getString(R.string.launch_ready)
             LaunchState.NeedsRuntime -> getString(R.string.launch_needs_runtime)
-            is LaunchState.Blocked -> getString(state.reason.messageRes())
+            is LaunchState.Blocked -> blockedHint(state.reason)
         }
         binding.launchButton.text = getString(
             if (state is LaunchState.NeedsRuntime) R.string.launch_install_runtime
@@ -932,6 +1191,67 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         validation = installValidation,
         runtimeAcquirable = runtimeIsAcquirable(),
     )
+
+    /**
+     * The one line under the Launch button.
+     *
+     * For a rejected installation this is the validator's own words rather than
+     * a fixed string. The fixed one said "has not been verified yet" for two
+     * completely different situations — the check had not run, and the check
+     * had run and refused the file — and only the second is something the user
+     * can act on. A button that is switched off with a reason nobody can read
+     * is indistinguishable from a broken one.
+     */
+    private fun blockedHint(reason: BlockReason): String = when (reason) {
+        BlockReason.INSTALL_NOT_VALIDATED -> when (val result = installValidation) {
+            is InstallValidation.Invalid -> result.reason
+            else -> getString(R.string.launch_locked_not_validated)
+        }
+        else -> getString(reason.messageRes())
+    }
+
+    /**
+     * The full reason the Launch button is off, for the hint to open on a tap.
+     *
+     * The hint is one line of small text; a validation failure also carries the
+     * folder that was checked and what its header actually said, and none of
+     * that fits. Tapping the hint opens all of it, and offers the one action
+     * that can change the answer — re-checking the folder — because a refusal
+     * caused by a revoked permission or an unmounted card is not permanent.
+     */
+    private fun showLaunchBlockDetail() {
+        val invalid = installValidation as? InstallValidation.Invalid
+        val failure = launchFailure
+        // Nothing to expand: the button works and nothing has failed yet, so
+        // the one line already on screen is the whole story.
+        if (launchState() !is LaunchState.Blocked && invalid == null && failure == null) return
+
+        val message = buildString {
+            appendLine(binding.launchHint.text)
+            if (invalid != null) {
+                if (invalid.detail.isNotBlank()) {
+                    appendLine()
+                    appendLine(invalid.detail)
+                }
+                appendLine()
+                append(getString(R.string.launch_blocked_checked_folder, invalid.path))
+            }
+            if (failure != null) {
+                appendLine()
+                appendLine(getString(R.string.launch_failure_heading))
+                append(failure)
+            }
+        }.trimEnd()
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.launch_blocked_title)
+            .setMessage(message)
+            .setNeutralButton(R.string.launch_blocked_recheck) { _, _ ->
+                ensureInstall(force = true)
+            }
+            .setPositiveButton(R.string.import_dialog_positive, null)
+            .show()
+    }
 
     private fun BlockReason.messageRes(): Int = when (this) {
         BlockReason.NO_GAME_FILES -> R.string.launch_locked_no_install
@@ -1176,13 +1496,32 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         // `wineboot` and a 32-bit program, each of which can take a minute or
         // more on a phone. Calling it from a click handler would freeze the
         // launcher for as long as Wine takes to come up.
+        if (launching) {
+            showMessage(getString(R.string.launch_already_running))
+            return
+        }
+        launching = true
+
         binding.launchButton.isEnabled = false
+        // Shown before the work starts, not when it finishes: the whole point
+        // is that this can take minutes and the screen used to say nothing.
+        binding.launchProgress.isVisible = true
+        binding.launchProgressText.text = getString(R.string.launch_progress_starting)
+
         // Each attempt gets a clean log: what Wine said last time is not
         // evidence about what it does this time.
+        launchFailure = null
         runtimeOutput.setLength(0)
-        background.execute {
-            val phase = runtimeHost.launch()
+        gameOutput.setLength(0)
+        launchExecutor.execute {
+            val phase = try {
+                runtimeHost.launch()
+            } finally {
+                launching = false
+            }
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                binding.launchProgress.isVisible = false
                 if (phase !is RuntimeManager.Phase.InGame) {
                     binding.launchButton.isEnabled = true
                 }
@@ -1434,7 +1773,18 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         runtimeComponents().forEach { component ->
             put(component.title, getString(component.status.labelRes()))
         }
-        putAll(runtimeHost.diagnosticsSection(capabilities = capabilities))
+        // The exit is passed, not left out. It used to be omitted entirely,
+        // which meant every report silently lost the one section that says
+        // how the run actually ended — and a report that cannot say that is
+        // a report that cannot be investigated. Falls back to the record
+        // written by the previous run, for the case where the app itself
+        // died and this is the next start.
+        putAll(
+            runtimeHost.diagnosticsSection(
+                capabilities = capabilities,
+                exit = lastExit ?: lastRunStore.load(),
+            ),
+        )
     }
 
     /**
@@ -1625,5 +1975,8 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
 
         /** Cap on how much of the runtime's output a report will carry. */
         const val RUNTIME_OUTPUT_LIMIT = 256 * 1024
+
+        /** How much of a failed run to show on screen. Enough to see a crash. */
+        const val LAST_OUTPUT_LINES = 40
     }
 }

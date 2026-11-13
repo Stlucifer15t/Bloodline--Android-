@@ -1,6 +1,8 @@
 package com.bloodline.android.runtime
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -171,9 +173,43 @@ class WineEnvironmentTest {
     }
 
     @Test
-    fun `Wine debug output is off by default`() {
-        // Wine is extremely chatty and it all lands in the same log.
-        assertEquals("-all", environment().environment()["WINEDEBUG"])
+    fun `Wine is not muted, because a crash is exactly when it has to speak`() {
+        // The old value was -all. That was fine while everything worked and
+        // useless the moment it did not: a 32-bit program under Wine on a real
+        // device came back SIGSEGV, and the launcher had already told Wine not
+        // to print anything, then asked the user what Wine said.
+        // Tokens, not substrings: "fixme-all" is a channel being switched off
+        // and it contains the characters of "-all" without meaning it.
+        val channels = environment().environment()["WINEDEBUG"]
+            .orEmpty()
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+
+        assertFalse(channels.toString(), channels.contains("-all"))
+        // Errors and the exception that reports a crash have to be on.
+        assertTrue(channels.toString(), channels.contains("err+all"))
+        assertTrue(channels.toString(), channels.contains("trace+seh"))
+        // Whether the WoW64 layer was found is the question behind most of
+        // the 32-bit failures, so DLL loading is on too.
+        assertTrue(channels.toString(), channels.contains("trace+loaddll"))
+
+        // The module channel is a firehose and it must stay off. It was on
+        // once, and the first real log proved what that costs: 1975 of 2055
+        // captured lines were 'module' mapping PE sections, and not one seh
+        // or err line survived to be read. Verbose is not the same as useful.
+        assertFalse(
+            channels.toString(),
+            channels.any { it.startsWith("trace+module") || it.startsWith("module") },
+        )
+    }
+
+    @Test
+    fun `Wine debug channels can be set when something needs a closer look`() {
+        val environment = environment().copy(wineDebug = "trace+all")
+
+        assertEquals("trace+all", environment.environment()["WINEDEBUG"])
     }
 
     @Test
@@ -206,5 +242,65 @@ class WineEnvironmentTest {
 
         assertTrue(owned.contains("prefix"))
         assertTrue(!owned.contains("Vampire"))
+    }
+
+    @Test
+    fun `Wine is pointed at the executable library directory`() {
+        // Measured on a real Android 14 device: app data refuses
+        // mmap(PROT_EXEC) over a PE image, so wineboot cannot create drive_c
+        // and the game is never started. nativeLibraryDir is the one directory
+        // Android maps executable, so the PE files live there.
+        val variables = environment().withRuntimePaths(
+            wineBin = "/runtime/wine/bin",
+            libDirs = listOf("/runtime/wine/lib"),
+            wineDllPath = "/data/app/~~x==/com.bloodline.android/lib/arm64",
+        )
+
+        assertEquals(
+            "/data/app/~~x==/com.bloodline.android/lib/arm64",
+            variables[WineEnvironment.WINEDLLPATH],
+        )
+    }
+
+    @Test
+    fun `no library directory means no claim about WINEDLLPATH`() {
+        // A caller that does not know the directory must not assert one: the
+        // variable would point somewhere that does not exist and the failure
+        // would be reported far from its cause.
+        val variables = environment().withRuntimePaths(
+            wineBin = "/runtime/wine/bin",
+            libDirs = listOf("/runtime/wine/lib"),
+        )
+
+        assertNull(variables[WineEnvironment.WINEDLLPATH])
+    }
+
+    @Test
+    fun `the Unofficial Patch is selected with -game, not baked into the path`() {
+        val command = environment().copy(gameArgument = "Unofficial_Patch")
+            .launchCommand(emulatorBinary = null)
+
+        assertEquals(
+            listOf(
+                "/data/data/com.bloodline.android/runtime/wine/bin/wine",
+                "D:\\Vampire.exe",
+                "-game",
+                "Unofficial_Patch",
+            ),
+            command,
+        )
+    }
+
+    @Test
+    fun `a vanilla install passes no game argument`() {
+        val command = environment().launchCommand(emulatorBinary = null)
+
+        assertEquals(
+            listOf(
+                "/data/data/com.bloodline.android/runtime/wine/bin/wine",
+                "D:\\Vampire.exe",
+            ),
+            command,
+        )
     }
 }

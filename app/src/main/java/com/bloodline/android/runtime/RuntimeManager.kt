@@ -64,6 +64,30 @@ class RuntimeManager(
 
     /** Called with each line the guest prints, for the diagnostics log. */
     private val onOutput: (String) -> Unit = {},
+
+    /**
+     * A monotonic milliseconds source for session timing.
+     *
+     * Injected rather than assumed, for the reason given on
+     * [GameProcessManager]: wall-clock time can go backwards, and a run that
+     * measures as 0s when it ran for minutes sends everyone looking for a
+     * cause that is really a broken clock.
+     */
+    private val clock: () -> Long = System::currentTimeMillis,
+
+    /**
+     * Called with each line the **game** prints, kept apart from [onOutput].
+     *
+     * Measured, not guessed. The first log off a real device held 2055 lines
+     * and every one of them came from `wineboot` during prefix creation —
+     * `wineboot.exe`, `explorer.exe`, `iexplore.exe`, `rundll32.exe`. Nothing
+     * the game said survived to the end of the buffer, because the buffer had
+     * already been spent by the prefix before the game existed.
+     *
+     * Keeping two streams is what makes the tail meaningful: the prefix's
+     * output is read when a *stage* fails, the game's when the *game* fails.
+     */
+    private val onGameOutput: (String) -> Unit = {},
 ) {
 
     /**
@@ -77,9 +101,40 @@ class RuntimeManager(
      */
     var onProcessExit: ((GameProcessManager.ExitResult) -> Unit)? = null
 
+    /**
+     * Called every time the lifecycle moves, not only when it stops.
+     *
+     * Bringing Wine up runs `wine --version`, `wineboot` and a 32-bit program,
+     * and the timeouts alone add up to over five minutes. Reporting only the
+     * phase it finally reached meant the launcher sat completely silent for
+     * that whole time, which is indistinguishable from a button that does
+     * nothing. Called on whatever thread the launch runs on.
+     */
+    var onPhase: ((Phase) -> Unit)? = null
+
+    /**
+     * Called before each Wine stage runs, with the stage and where it sits.
+     *
+     * The three slow stages have timeouts of 10s, 180s and 120s, so "preparing
+     * the runtime" on its own can cover five minutes of silence. This names the
+     * stage being worked on, which is also the stage a failure will be blamed
+     * on. Called on whatever thread the launch runs on.
+     */
+    var onWineStage: ((WineInitialiser.Stage, Int, Int) -> Unit)? = null
+
+    /**
+     * Called when the 32-bit check failed but the launch is going ahead.
+     *
+     * A warning, not an error: the check runs a stand-in for the game, and
+     * the stand-in crashed, so the game is expected to crash too — but
+     * "expected" is a prediction, not a result. The launch continues and
+     * this is what lets the screen say why the attempt is being made anyway.
+     */
+    var onWineWarning: ((WineInitialiser.StageResult) -> Unit)? = null
+
     private var capabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
 
-    private var processManager = GameProcessManager()
+    private var processManager = GameProcessManager(clock = clock)
 
     private var phase: Phase = Phase.Idle
 
@@ -96,6 +151,12 @@ class RuntimeManager(
 
     /** Where the lifecycle has got to. */
     fun phase(): Phase = phase
+
+    /** Moves the lifecycle on and tells anyone watching. */
+    private fun publish(next: Phase) {
+        phase = next
+        onPhase?.invoke(next)
+    }
 
     /** The capabilities the last [prepare] used. */
     fun capabilities(): RuntimeCapabilities = capabilities
@@ -188,17 +249,17 @@ class RuntimeManager(
      *         and never assumes success.
      */
     fun start(validation: InstallValidation?): Phase {
-        phase = Phase.Validating
+        publish(Phase.Validating)
         when (val decision = decide(validation)) {
             is LaunchDecision.No -> {
                 lastError = decision.reason
-                phase = Phase.Restored(decision.reason)
+                publish(Phase.Restored(decision.reason))
                 return phase
             }
             is LaunchDecision.Yes -> Unit
         }
 
-        phase = Phase.Preparing
+        publish(Phase.Preparing)
 
         // The step that makes a 32-bit executable runnable: the WoW64 DLL has
         // to be inside the prefix, in system32, or Wine finds nothing to host
@@ -209,7 +270,7 @@ class RuntimeManager(
             is RuntimeLauncher.Preparation.Ready -> Unit
             is RuntimeLauncher.Preparation.Failed -> {
                 lastError = prepared.reason
-                phase = Phase.Restored(prepared.reason)
+                publish(Phase.Restored(prepared.reason))
                 return phase
             }
         }
@@ -217,7 +278,7 @@ class RuntimeManager(
         val graphics = graphicsSelection()
         val translator = cpuTranslator()
 
-        phase = Phase.Initialising(graphics, translator)
+        publish(Phase.Initialising(graphics, translator))
 
         // The command is empty until binaries exist, and onLaunch refuses an
         // empty command rather than pretending to start something. That refusal
@@ -227,7 +288,7 @@ class RuntimeManager(
             val reason = lastPlan?.missing?.firstOrNull()
                 ?: "The runtime could not build a command to start the game with."
             lastError = reason
-            phase = Phase.Restored(reason)
+            publish(Phase.Restored(reason))
             return phase
         }
 
@@ -238,12 +299,35 @@ class RuntimeManager(
             null -> Unit // No initialiser: nothing can be checked, so nothing is claimed.
             else -> {
                 lastInitialisation = broughtUp
-                val failed = broughtUp.failedAt
+                val failed = broughtUp.blockingFailure
                 if (failed != null) {
                     lastError = failed.describe()
-                    phase = Phase.Restored(failed.describe())
+                    publish(Phase.Restored(failed.describe()))
                     return phase
                 }
+
+                // A failed 32-bit check does not stop us. It ran a stand-in
+                // for the game, not the game, and the stand-in carries a
+                // console host the game never touches — so it can fail while
+                // the game would have started. Say so loudly, then try the
+                // real thing, because the real thing is the evidence.
+                broughtUp.warning?.let { onWineWarning?.invoke(it) }
+            }
+        }
+
+        // The game is launched as `D:\Vampire.exe`, so the prefix must map a
+        // `D:` drive to the game's folder. This is a filesystem step (a symlink
+        // in `dosdevices`), not a Wine command, so it does not need a display.
+        val gameDirectory = java.io.File(
+            (validation as InstallValidation.Valid).install.executablePath,
+        ).parentFile ?: java.io.File((validation as InstallValidation.Valid).install.rootPath)
+        when (val drive = launcher?.prepareGameDrive(gameDirectory)) {
+            null -> Unit
+            is RuntimeLauncher.Preparation.Ready -> Unit
+            is RuntimeLauncher.Preparation.Failed -> {
+                lastError = drive.reason
+                publish(Phase.Restored(drive.reason))
+                return phase
             }
         }
 
@@ -252,11 +336,11 @@ class RuntimeManager(
             val reason = (state as? GameProcessManager.State.Failed)?.reason
                 ?: "The game process could not be started."
             lastError = reason
-            phase = Phase.Restored(reason)
+            publish(Phase.Restored(reason))
             return phase
         }
 
-        phase = Phase.Launching
+        publish(Phase.Launching)
 
         // Started, not waited for: the game runs for hours. The callback is how
         // its exit reaches the process manager from the runner's thread.
@@ -266,30 +350,56 @@ class RuntimeManager(
                 environment = lastPlan?.environment.orEmpty(),
                 workingDirectory = lastPlan?.workingDirectory?.let { java.io.File(it) },
             ),
-            onLine = onOutput,
+            // Two streams from here on: everything still goes to the
+            // diagnostics log, and the game's own words go somewhere they
+            // cannot be drowned out by what the prefix already printed.
+            onLine = { line ->
+                onOutput(line)
+                onGameOutput(line)
+            },
             onExit = { outcome ->
                 val result = when (outcome) {
-                    is ProcessRunner.Outcome.Exited -> processManager.onExit(outcome.exitCode)
+                    // The signal is passed, not dropped. Without it a process
+                    // killed by SIGSEGV reports as "exited with 139", and the
+                    // one fact that identifies a crash becomes a number that
+                    // reads like a program error.
+                    is ProcessRunner.Outcome.Exited ->
+                        processManager.onExit(outcome.exitCode, outcome.signal)
 
-                    // No exit status exists in either case, and saying so is
-                    // the point: a process that was killed or never started is
-                    // "vanished", not "exited cleanly with code 0".
+                    // Three ways to have no exit status, and they are not the
+                    // same thing: we gave up, the binary never started, or
+                    // Android took the child away. Reported separately.
                     is ProcessRunner.Outcome.TimedOut -> {
-                        lastError = "the game was killed after ${outcome.timeoutMs}ms"
-                        processManager.onReaped()
+                        lastError = "the game was still running after ${outcome.timeoutMs}ms"
+                        processManager.onTimedOut(outcome.timeoutMs)
                     }
 
                     is ProcessRunner.Outcome.Failed -> {
                         lastError = outcome.reason
-                        processManager.onMissing(outcome.reason)
-                        processManager.onReaped()
+                        processManager.onLaunchFailed(outcome.reason)
                     }
                 }
                 onProcessExit?.invoke(result)
             },
         )
 
-        phase = Phase.InGame
+        // The pid exists now, and only now. Recorded so that whatever the
+        // process went on to do can be tied back to this run in logcat.
+        processManager.attachPid(gameHandle?.pid)
+
+        // A game that dies immediately is the common case while the runtime is
+        // incomplete, and it is exactly the case this used to get wrong: the
+        // exit callback runs on the runner's thread and can fire before this
+        // line, so an unconditional publish here overwrote a real exit with
+        // "in game". The screen then claimed the game was running while its
+        // own crash report had already been written.
+        //
+        // Publishing InGame only while a process is genuinely alive keeps the
+        // two in agreement; when it has already exited, the exit callback is
+        // what the UI hears, and it is the accurate one.
+        if (processManager.isRunning) {
+            publish(Phase.InGame)
+        }
         return phase
     }
 
@@ -305,6 +415,12 @@ class RuntimeManager(
             environment = lastPlan?.environment.orEmpty(),
             plan = lastPlan,
             onLine = onOutput,
+            onStage = { stage, index, total -> onWineStage?.invoke(stage, index, total) },
+            // A prefix that has already been created and verified is not
+            // rebuilt: wineboot, every registry write and the 32-bit probe
+            // would otherwise run again on every launch, which is minutes of
+            // a phone's time spent re-learning a fact.
+            reuseInitialisedPrefix = true,
         )
 
     /**
@@ -325,7 +441,7 @@ class RuntimeManager(
             StopReason.Vanished -> processManager.onReaped()
             is StopReason.Exited -> processManager.onExit(reason.exitCode, reason.signal)
         }
-        phase = Phase.Restored(result.reason.name)
+        publish(Phase.Restored(result.reason.name))
         return result
     }
 
@@ -333,7 +449,7 @@ class RuntimeManager(
     fun acknowledgeRestored() {
         processManager.reset()
         lastError = null
-        phase = Phase.Idle
+        publish(Phase.Idle)
     }
 
     /** The last failure, for the UI to show. Null once acknowledged. */
@@ -358,6 +474,7 @@ class RuntimeManager(
             backend = graphicsSelection().backend ?: return emptyList(),
             capabilities = capabilities,
             audio = audioBridge(),
+            wineDebug = configuration.wineDebug,
         )
         lastPlan = plan
 
@@ -373,6 +490,34 @@ class RuntimeManager(
 
     /** How far Wine got the last time it was brought up, or null. */
     fun initialisation(): WineInitialiser.Report? = lastInitialisation
+
+    /**
+     * The environment the game would be started with.
+     *
+     * For diagnostics only, and worth having because it settles the argument
+     * that cannot be settled from a pasted failure message: what Wine was
+     * actually told to print. A report that says Wine said nothing is only
+     * meaningful next to the value of `WINEDEBUG` it was given.
+     */
+    fun plannedEnvironment(): Map<String, String> = lastPlan?.environment.orEmpty()
+
+    /**
+     * Whether the WoW64 host DLL is where Wine will look for it.
+     *
+     * A sentence rather than a boolean, because a report is read by a person:
+     * "ABSENT" sitting next to a null-dereference crash inside ntdll.so is
+     * the whole diagnosis in two lines.
+     */
+    fun wow64HostDll(): String {
+        val flavour = flavour()
+        if (!flavour.usesWow64Layer) return "not used by ${flavour.title}"
+        val file = launcher?.wow64DllInPrefix(flavour)
+        return if (file != null) {
+            "present at ${file.absolutePath}"
+        } else {
+            "ABSENT: ${flavour.wow64DllName} is not in the prefix's system32"
+        }
+    }
 
     /** True while a game process is still running. */
     fun isRunning(): Boolean = processManager.isRunning

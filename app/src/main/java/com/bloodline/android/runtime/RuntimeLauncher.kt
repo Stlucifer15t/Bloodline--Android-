@@ -30,6 +30,16 @@ import java.io.IOException
 class RuntimeLauncher(
     private val store: RuntimePackageStore,
     private val layout: RuntimeLayout = RuntimeLayout(store),
+
+    /**
+     * The APK's `nativeLibraryDir`, when the caller has one.
+     *
+     * Android maps this directory executable and nothing else, which makes it
+     * the only place a PE image can be loaded from on a device that refuses
+     * `mmap(PROT_EXEC)` over app data. Null means "do not set `WINEDLLPATH`",
+     * which is honest: a caller without it is not claiming the workaround.
+     */
+    private val nativeLibraryDir: String? = null,
 ) {
 
     /** Everything needed to start the game, or the reasons it cannot be. */
@@ -102,6 +112,36 @@ class RuntimeLauncher(
         }
     }
 
+    /** The WoW64 host DLL as Wine will find it, or null when it is not there. */
+    fun wow64DllInPrefix(flavour: WineFlavour = WineFlavour.DEFAULT): File? =
+        layout.wow64DllInPrefix(flavour)
+
+    /**
+     * Maps the game's folder to a drive letter in the prefix.
+     *
+     * Without this, the launch command points at `D:\Vampire.exe` in a prefix
+     * that has no `D:`. This creates the `dosdevices/d:` symlink so Wine can
+     * resolve the game.
+     *
+     * @param gameDirectory absolute Unix path of the folder that holds the game.
+     * @return [Preparation.Ready] when the drive is mapped, or a reason when the
+     *         prefix is not present yet (nothing was checked, so nothing is claimed).
+     */
+    fun prepareGameDrive(gameDirectory: File): Preparation {
+        val dosDevices = layout.dosDevicesDirectory()
+        val prefixExists = dosDevices.isDirectory || dosDevices.parentFile?.isDirectory == true
+        if (!prefixExists) {
+            return Preparation.Failed(
+                "The Wine prefix does not exist yet, so no drive could be mapped.",
+            )
+        }
+        return if (layout.mapGameDrive(gameDirectory) != null) {
+            Preparation.Ready
+        } else {
+            Preparation.Failed("The game folder could not be mapped to a drive letter in the prefix.")
+        }
+    }
+
     /**
      * Builds the launch plan.
      *
@@ -115,9 +155,12 @@ class RuntimeLauncher(
         backend: GraphicsBackend,
         capabilities: RuntimeCapabilities,
         audio: AudioBridge = AudioBridge.recommendedFor(capabilities),
+        /** `WINEDEBUG`, or null for [WineEnvironment.DEFAULT_WINE_DEBUG]. */
+        wineDebug: String? = null,
     ): LaunchPlan {
-        val gameDirectory = File(validation.install.executablePath).parentFile.absolutePath
-        val executableName = File(validation.install.executablePath).name
+        val executable = File(validation.install.executablePath)
+        val gameDirectory = (executable.parentFile ?: File(validation.install.rootPath)).absolutePath
+        val executableName = executable.name
 
         val graphics = GraphicsConfiguration.forBackend(backend, capabilities)
         // The plugin is searched for, not assumed. When it is absent the
@@ -135,6 +178,15 @@ class RuntimeLauncher(
             wineLoader = layout.wineLoader(flavour)?.absolutePath.orEmpty(),
             gameDirectory = gameDirectory,
             executableName = executableName,
+            wineDebug = wineDebug ?: WineEnvironment.DEFAULT_WINE_DEBUG,
+            // Selecting the patch is a launch argument, not a file copy. The
+            // engine loads it by folder name, so a detected patch that is not
+            // named here is a patch that does nothing.
+            gameArgument = if (validation.install.hasUnofficialPatch) {
+                InstallationValidator.PATCH_DIRECTORY_NAME
+            } else {
+                null
+            },
         )
 
         val environment = buildMap {
@@ -143,6 +195,7 @@ class RuntimeLauncher(
                 wine.withRuntimePaths(
                     wineBin = layout.wineBinDir(flavour)?.absolutePath.orEmpty(),
                     libDirs = layout.libDirs(flavour).map { it.absolutePath },
+                    wineDllPath = nativeLibraryDir,
                 ),
             )
             putAll(graphics.environment())

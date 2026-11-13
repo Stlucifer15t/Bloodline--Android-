@@ -1,5 +1,6 @@
 package com.bloodline.android.runtime
 
+import com.bloodline.android.runtime.GameProcessManager
 import com.bloodline.android.runtime.backends.CpuTranslator
 import com.bloodline.android.runtime.backends.GraphicsBackend
 import org.junit.Assert.assertEquals
@@ -25,7 +26,11 @@ class RuntimeHostTest {
         override fun enterGameplay() { events += "enterGameplay" }
         override fun exitGameplay() { events += "exitGameplay" }
         override fun onPhaseChanged(phase: RuntimeManager.Phase) { events += "phase:${phase::class.simpleName}" }
-        override fun onFinished(message: String) { events += "finished:$message" }
+        override fun onFinished(message: String, exit: GameProcessManager.ExitResult?) {
+            events += "finished:$message"
+            exit?.let { events += "exit:${it.reason}" }
+        }
+
         override fun onError(message: String) { events += "error:$message" }
     }
 
@@ -218,6 +223,41 @@ class RuntimeHostTest {
             "The experimental Vulkan backend must never appear by default.",
             !section["Graphics backend"]!!.contains("PanVK"),
         )
+    }
+
+    @Test
+    fun `the diagnostics section records the evidence, not just a conclusion`() {
+        // Everything needed to disagree with our reading has to be in the
+        // report: the raw status, the signal, what was run, and its pid. A
+        // report that only says "crashed" cannot be checked, and an
+        // interpretation that cannot be checked is just an opinion.
+        val runtime = RuntimeHost(host()).apply { prepare(glesDevice) }
+        val exit = GameProcessManager().apply {
+            onLaunch(listOf("wine", "Vampire.exe", "-game", "vampire"), 4242L)
+        }.onExit(139)
+
+        val section = runtime.diagnosticsSection(capabilities = glesDevice, exit = exit)
+
+        assertEquals("CRASHED", section["Exit reading"])
+        assertEquals("SIGSEGV (11)", section["Exit signal"])
+        assertTrue(section["Exit meaning"]!!.contains("SIGSEGV"))
+        // The command, argument for argument, because "which Wine, and with
+        // what" is the first thing asked about a crash.
+        assertEquals("wine Vampire.exe -game vampire", section["Command"])
+        assertEquals("4242", section["Process id"])
+        // Absent, and said to be absent, rather than quietly zero.
+        assertEquals("none: no status was produced", section["Exit code"])
+    }
+
+    @Test
+    fun `the diagnostics section says whether the WoW64 host DLL is in the prefix`() {
+        // The 32-bit path lives or dies by this one file being where Wine
+        // looks for it, so it is stated every time rather than only when it
+        // goes missing.
+        val runtime = RuntimeHost(host()).apply { prepare(glesDevice) }
+        val section = runtime.diagnosticsSection(capabilities = glesDevice)
+
+        assertTrue(section.containsKey("WoW64 host DLL"))
     }
 
     @Test

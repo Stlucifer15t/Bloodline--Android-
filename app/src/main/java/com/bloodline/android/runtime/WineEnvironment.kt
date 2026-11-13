@@ -45,6 +45,26 @@ data class WineEnvironment(
 
     /** Executable to start, relative to [gameDirectory]. */
     val executableName: String = DEFAULT_EXECUTABLE,
+
+    /**
+     * `WINEDEBUG`: which of Wine's channels are on.
+     *
+     * [DEFAULT_WINE_DEBUG], not silence. See the note on that constant: this
+     * used to be `-all`, which meant that the one time the answer mattered —
+     * a Windows program crashing under Wine — the launcher had already told
+     * Wine not to say anything, and then asked the user what Wine said.
+     */
+    val wineDebug: String = DEFAULT_WINE_DEBUG,
+
+    /**
+     * Game argument, or null for the base game.
+     *
+     * Source-engine mods are selected with `-game <folder>`. Wesp5's Unofficial
+     * Patch installs as `Unofficial_Patch` and is **not** active unless the
+     * engine is told to load it, so omitting this runs vanilla Bloodlines while
+     * every patch file sits unused on disk.
+     */
+    val gameArgument: String? = null,
 ) {
 
     /** `WINEPREFIX`: the directory Wine keeps its virtual Windows in. */
@@ -90,9 +110,8 @@ data class WineEnvironment(
         // relative path starts in the right place.
         put("WINE_GAME_DIRECTORY", gameDirectory)
 
-        // Wine's own chatter is enormous and it all goes through the same log
-        // path as our diagnostics. Off by default; -all means "no debug at all".
-        put("WINEDEBUG", "-all")
+        // Errors, warnings and the crash itself. See [DEFAULT_WINE_DEBUG].
+        put("WINEDEBUG", wineDebug)
 
         // Keep Wine's temporary files inside the directory we own rather than
         // letting them scatter into /tmp, which Android may not even permit.
@@ -110,25 +129,93 @@ data class WineEnvironment(
      *
      * @param wineBin    the Wine build's `bin` directory.
      * @param libDirs    library directories, in search order.
+     * @param wineDllPath an executable directory holding Windows PE files, or
+     *        null. See [WINEDLLPATH] below — this is the fix for a measured
+     *        device failure, not a precaution.
      */
     fun withRuntimePaths(
         wineBin: String,
         libDirs: List<String>,
+        wineDllPath: String? = null,
     ): Map<String, String> = environment() + linkedMapOf(
         "PATH" to (listOf(wineBin) + libDirs.map { "$it/bin" }).joinToString(":"),
         "LD_LIBRARY_PATH" to libDirs.joinToString(":"),
-    )
+    ).apply {
+        // A measured Android 14 device refuses to map Wine's own PE files
+        // executable from the app data directory:
+        //
+        //   err:virtual:map_image_into_view failed to set 60000020 protection
+        //   on L"\\??\\C:\\windows\\system32\\ntdll.dll" ... noexec filesystem?
+        //
+        // The loader then runs the image non-executable and dies at the first
+        // instruction, which arrives as a SIGSEGV inside ntdll.so and reads
+        // like a Wine bug rather than a platform restriction.
+        //
+        // `nativeLibraryDir` is the one directory Android guarantees is mapped
+        // executable, which is why it extracts `lib*.so` there. So the Wine
+        // build's Windows DLLs are shipped inside the APK and Wine is pointed
+        // at that directory. The writable prefix keeps the registry and the
+        // user's files; only the read-only image files move.
+        if (wineDllPath != null) put(WINEDLLPATH, wineDllPath)
+    }
 
-    /** The command that starts the game. */
-    fun launchCommand(emulatorBinary: String?): List<String> = when {
-        flavour.needsEmulator && emulatorBinary != null ->
-            listOf(emulatorBinary, wineLoader, windowsExecutablePath)
-        else -> listOf(wineLoader, windowsExecutablePath)
+    /**
+     * The command that starts the game.
+     *
+     * The executable always comes first, then the game argument. Wine passes
+     * everything after the executable through to the program, so `-game
+     * Unofficial_Patch` reaches the Source engine and selects the patch.
+     *
+     * `-game` and its folder are two separate argv entries on purpose: a single
+     * `"-game Unofficial_Patch"` string arrives as one argument the engine does
+     * not recognise.
+     */
+    fun launchCommand(emulatorBinary: String?): List<String> {
+        val base = when {
+            flavour.needsEmulator && emulatorBinary != null ->
+                listOf(emulatorBinary, wineLoader, windowsExecutablePath)
+            else -> listOf(wineLoader, windowsExecutablePath)
+        }
+        return if (gameArgument != null) base + listOf(GAME_ARGUMENT, gameArgument) else base
     }
 
     companion object {
         const val DEFAULT_GAME_DRIVE = 'D'
         const val DEFAULT_EXECUTABLE = "Vampire.exe"
+
+        /** The Source engine switch that selects a mod folder. */
+        const val GAME_ARGUMENT = "-game"
+
+        /** Where Wine looks for its PE files, when they are not in the prefix. */
+        const val WINEDLLPATH = "WINEDLLPATH"
+
+        /**
+         * What Wine is asked to print.
+         *
+         * Deliberately **not** `-all`. Silence was the old value, and it was
+         * wrong for the same reason a black box recorder that is switched off
+         * is wrong: everything is quiet right up to the moment something
+         * breaks, and then there is nothing to read. A 32-bit program under
+         * Wine on a real device came back SIGSEGV, and the launcher had
+         * already suppressed the one thing that could say why.
+         *
+         * Errors and warnings are cheap. `seh` is what reports an unhandled
+         * exception, so it is the channel the crash arrives on. `loaddll` says
+         * whether the WoW64 layer and the guest's own DLLs were found, which
+         * is the question behind most 32-bit failures.
+         *
+         * `trace+module` is deliberately **not** in here, and it used to be.
+         * That was a mistake, and the first real log proved it: of 2055 lines
+         * captured from a device, 1975 were `module` — one line per PE section
+         * of every DLL mapped — and not one `seh` or `err:` line survived.
+         * Naming a channel "the firehose" and then switching it on is how a
+         * buffer fills with noise while the answer scrolls off the end.
+         *
+         * The volume is managed where it can be measured: the runner keeps the
+         * last few hundred lines, the report caps at 256 KB, and the game's
+         * output is kept apart from the prefix's (see RuntimeManager).
+         */
+        const val DEFAULT_WINE_DEBUG = "err+all,warn+all,fixme-all,trace+seh,trace+loaddll"
 
         /** Everything the runtime owns, relative to [runtimeRoot]. */
         val ownedDirectories: List<String> get() = listOf("prefix", "tmp", "logs")

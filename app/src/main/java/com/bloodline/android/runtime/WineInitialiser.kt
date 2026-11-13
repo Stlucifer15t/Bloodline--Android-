@@ -134,6 +134,41 @@ class WineInitialiser(
         val failedAt: StageResult? get() = results.firstOrNull { it.failed }
 
         /**
+         * The failure that means the game cannot be attempted at all.
+         *
+         * Nearly every stage earns its veto: a loader that will not execute,
+         * or a prefix that will not initialise, leaves nothing to launch
+         * into. [Stage.WOW64] is the exception, and it is an exception on
+         * principle rather than by convenience.
+         *
+         * Every other stage tests Wine itself. This one tests a **stand-in
+         * for the game** — a 32-bit program that ships with Wine — and a
+         * stand-in that dies is evidence, not proof. Worse, this particular
+         * stand-in is `cmd.exe`, a console program, so Wine also has to host
+         * `conhost.exe` to give it a console. The game is a graphical
+         * program and never touches any of that. The check can therefore
+         * fail for a reason that has nothing to do with whether the game
+         * would have started.
+         *
+         * Refusing to launch on the strength of it is the one move that
+         * guarantees we learn nothing: the real program never runs, so its
+         * own output — the only evidence that actually settles the question
+         * — is never produced.
+         */
+        val blockingFailure: StageResult? get() =
+            results.firstOrNull { it.failed && it.stage != Stage.WOW64 }
+
+        /**
+         * A failure worth shouting about but not worth stopping for.
+         *
+         * Only [Stage.WOW64] can appear here. It is reported to the user and
+         * then the game is attempted anyway, on the reasoning in
+         * [blockingFailure].
+         */
+        val warning: StageResult? get() =
+            results.firstOrNull { it.failed && it.stage == Stage.WOW64 }
+
+        /**
          * Stages that were skipped, so nothing was actually measured.
          *
          * Reported separately rather than folded into success or failure:
@@ -167,16 +202,44 @@ class WineInitialiser(
      *        reliable way to get a prefix that behaves differently on launch.
      * @param plan the launch plan, whose registry settings are applied.
      * @param onLine called with each line Wine prints.
+     * @param onStage called with each stage before it runs, and where it sits
+     *        in the sequence. The stages are the slow part — the three that run
+     *        a process carry timeouts of 10s, 180s and 120s — so a caller that
+     *        only hears at the end leaves the screen blank for minutes.
      */
     fun initialise(
         flavour: WineFlavour,
         environment: Map<String, String>,
         plan: RuntimeLauncher.LaunchPlan? = null,
         onLine: (String) -> Unit = {},
+        onStage: (Stage, Int, Int) -> Unit = { _, _, _ -> },
+        /**
+         * When true, a prefix this build has already brought up is reused
+         * instead of being rebuilt.
+         *
+         * Off by default so that every existing caller — and every test —
+         * keeps the full, measured sequence. The launch path turns it on,
+         * because paying `wineboot`, every registry write and the 32-bit
+         * probe again on each launch is minutes of a phone's time to learn
+         * something that was already known.
+         */
+        reuseInitialisedPrefix: Boolean = false,
     ): Report {
         val results = mutableListOf<StageResult>()
+        val total = Stage.entries.size
+        fun starting(stage: Stage) = onStage(stage, stage.ordinal + 1, total)
+
+        // ---- 0. is this prefix already up? ---------------------------------
+        // Before any process is started, because that is the entire saving.
+        // The record is keyed on the Wine build, the WoW64 layer and the
+        // flavour, so a re-downloaded Wine or a wiped prefix invalidates it
+        // by itself rather than by anyone remembering to clear it.
+        if (reuseInitialisedPrefix) {
+            cachedReport(flavour)?.let { return it }
+        }
 
         // ---- 1. what the binary actually is --------------------------------
+        starting(Stage.VALIDATE)
         val loader = layout.wineLoader(flavour)
         if (loader == null) {
             results += StageResult(
@@ -208,6 +271,7 @@ class WineInitialiser(
         }
 
         // ---- 2. does the loader run at all ---------------------------------
+        starting(Stage.LOADER)
         val version = run(
             Stage.LOADER,
             listOf(loader.absolutePath, "--version"),
@@ -219,6 +283,7 @@ class WineInitialiser(
         if (!version.succeeded) return Report(results)
 
         // ---- 3. create the prefix ------------------------------------------
+        starting(Stage.PREFIX)
         // `mscoree` is disabled for this one command and no other. Wine's first
         // run offers to download Mono, and .NET's installer waits for an answer
         // nobody can give on a phone: the prefix creation hangs until the
@@ -234,6 +299,7 @@ class WineInitialiser(
         if (!prefix.succeeded) return Report(results)
 
         // ---- 4. the settings the game will run under -----------------------
+        starting(Stage.REGISTRY)
         val settings = plan?.registrySettings.orEmpty()
         if (settings.isEmpty()) {
             results += StageResult(
@@ -258,9 +324,57 @@ class WineInitialiser(
         }
 
         // ---- 5. a 32-bit Windows program -----------------------------------
+        starting(Stage.WOW64)
         results += runWow64Test(flavour, loader, environment, onLine)
 
-        return Report(results)
+        val report = Report(results)
+
+        // Only a prefix that got past creation is worth remembering. A record
+        // written after a failed stage would make the next launch skip the
+        // very thing that failed.
+        if (reuseInitialisedPrefix && report.prefixIsUsable) {
+            recordInitialisation(flavour, report)
+        }
+
+        return report
+    }
+
+    /**
+     * The stored report for a prefix this build already brought up, or null.
+     *
+     * A null answer means "run the real sequence": the prefix is missing, the
+     * Wine build changed, or the record cannot be read. Every one of those is
+     * a reason to measure rather than to assume.
+     */
+    private fun cachedReport(flavour: WineFlavour): Report? {
+        val marker = store.initialisationMarker()
+        if (!marker.isFile) return null
+        if (!store.prefixDir().isDirectory) return null
+
+        val lines = runCatching { marker.readLines() }.getOrNull() ?: return null
+        if (lines.firstOrNull()?.trim() != store.initialisationFingerprint(flavour.name)) return null
+
+        // The stages that matter to a launch are replayed as *skipped*, not as
+        // successful: nothing ran this time, and a report that claimed it did
+        // would be a fabricated measurement.
+        val stages = Stage.entries.filter { it != Stage.WOW64 }.map {
+            StageResult(it, skippedBecause = "the prefix was initialised by an earlier launch")
+        }
+        return Report(stages)
+    }
+
+    /** Writes the marker that lets the next launch skip the sequence. */
+    private fun recordInitialisation(flavour: WineFlavour, report: Report) {
+        runCatching {
+            val marker = store.initialisationMarker()
+            marker.parentFile?.mkdirs()
+            marker.writeText(
+                buildString {
+                    appendLine(store.initialisationFingerprint(flavour.name))
+                    appendLine(report.describe())
+                },
+            )
+        }
     }
 
     /**
@@ -288,6 +402,14 @@ class WineInitialiser(
 
         val architecture = describeWindowsProgram(candidate)
 
+        // Where the 32-bit support is supposed to come from, stated as a fact
+        // in the same breath as the crash. A tombstone from a real device showed
+        // a null dereference inside ntdll.so with not one frame of the WoW64
+        // host DLL in it — which is what "Wine was told to load something that
+        // was not there" looks like. Naming whether it is there turns that from
+        // a guess into a reading.
+        val hostInPrefix = layout.wow64DllInPrefix(flavour)
+
         val result = run(
             Stage.WOW64,
             listOf(loader.absolutePath, candidate.absolutePath, "/c", "exit", WOW64_EXIT_CODE.toString()),
@@ -299,6 +421,14 @@ class WineInitialiser(
         val exited = result.outcome as? ProcessRunner.Outcome.Exited
         val detail = buildString {
             append(architecture)
+            append(" · ")
+            append(
+                if (hostInPrefix != null) {
+                    "${flavour.wow64DllName} in system32"
+                } else {
+                    "${flavour.wow64DllName} MISSING from system32"
+                },
+            )
             if (exited != null) {
                 append(" · exit ")
                 append(exited.exitCode)
