@@ -67,10 +67,15 @@ class LogcatRecorder(
         running = true
 
         thread = Thread {
+            // Two handles on the same writer: [out] is non-null so the write
+            // loop needs no null checks, and [writer] is the nullable one the
+            // finally block closes whether or not we ever got as far as
+            // opening it.
             var writer: BufferedWriter? = null
             var process: Process? = null
             try {
-                writer = BufferedWriter(FileWriter(currentLog, true))
+                var out = BufferedWriter(FileWriter(currentLog, true))
+                writer = out
                 process = ProcessBuilder("logcat", "-v", "time")
                     .redirectErrorStream(true)
                     .start()
@@ -94,15 +99,16 @@ class LogcatRecorder(
                         // Storage is still bounded: only [maxFiles] files
                         // are kept, and the oldest is dropped on each roll.
                         if (written > maxBytesPerFile) {
-                            runCatching { writer?.flush() }
-                            runCatching { writer?.close() }
+                            runCatching { out.flush() }
+                            runCatching { out.close() }
                             rotate()
-                            writer = BufferedWriter(FileWriter(currentLog, true))
+                            out = BufferedWriter(FileWriter(currentLog, true))
+                            writer = out
                             written = 0L
                         }
 
-                        writer.write(line)
-                        writer.newLine()
+                        out.write(line)
+                        out.newLine()
                         written += line.length + 1
                     }
                 }
