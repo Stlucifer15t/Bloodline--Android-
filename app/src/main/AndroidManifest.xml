@@ -38,6 +38,28 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+        Needed to *tune* the native port, and for nothing else.
+
+        The port keeps its settings under the shared storage the user chose
+        (`Download/<folder>/overlay/port_settings.txt`). That is not reachable
+        through the Storage Access Framework as a plain file, and the port does
+        not export a content provider, so writing there needs the storage
+        permission.
+
+        Deliberately the **legacy** permission rather than
+        `MANAGE_EXTERNAL_STORAGE`: this app targets API 28, so the legacy
+        storage model still applies and the all-files permission would be both
+        ignored by the platform and a larger ask than the job needs.
+
+        Reading the game and this app's own runtime never relies on it — the
+        scanner reads the game in place through SAF, and the runtime writes only
+        under app storage.
+    -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+
     <application
         android:name=".BloodlinesApplication"
         android:allowBackup="false"
