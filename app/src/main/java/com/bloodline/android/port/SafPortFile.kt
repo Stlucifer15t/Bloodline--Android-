@@ -96,10 +96,13 @@ class SafPortFile(
         // "wt" truncates. Without the "t" a shorter settings file would leave
         // the tail of the old one behind, and the port would read a line that
         // looks like a key from the previous file.
-        resolver.openOutputStream(document.uri, "wt")?.use { stream ->
-            stream.bufferedWriter().use { it.write(text) }
-        } ?: return PortFile.Result.Err("The provider would not open ${document.name} for writing.")
-        PortFile.Result.Ok(Unit)
+        val stream = resolver.openOutputStream(document.uri, "wt")
+        if (stream == null) {
+            PortFile.Result.Err("The provider would not open ${document.name} for writing.")
+        } else {
+            stream.use { output -> output.bufferedWriter().use { it.write(text) } }
+            PortFile.Result.Ok(Unit)
+        }
     } catch (error: IOException) {
         PortFile.Result.Err("The settings could not be written: ${error.message}")
     } catch (error: SecurityException) {
