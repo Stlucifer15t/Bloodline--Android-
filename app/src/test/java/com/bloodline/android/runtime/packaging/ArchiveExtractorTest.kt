@@ -194,7 +194,9 @@ class ArchiveExtractorTest {
         val file = temporary.newFile("tar-safe-link.tar")
         file.outputStream().buffered().use { out ->
             out.write(tarHeader("bin/wine", 0, typeflag = '0'.code.toByte()))
-            out.write(ByteArray(512))
+            // A zero-byte entry needs no data block, so none is written here:
+            // an extra block of zeros would be read as the end of the archive
+            // and the link after it would never be seen.
             out.write(tarHeader("bin/wineboot", 4, typeflag = '2'.code.toByte(), linkName = "wine"))
             out.write("wine".toByteArray())
             out.write(ByteArray(508))
