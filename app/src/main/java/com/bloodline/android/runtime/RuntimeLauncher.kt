@@ -115,6 +115,8 @@ class RuntimeLauncher(
         backend: GraphicsBackend,
         capabilities: RuntimeCapabilities,
         audio: AudioBridge = AudioBridge.recommendedFor(capabilities),
+        /** `WINEDEBUG`, or null for [WineEnvironment.DEFAULT_WINE_DEBUG]. */
+        wineDebug: String? = null,
     ): LaunchPlan {
         val gameDirectory = File(validation.install.executablePath).parentFile.absolutePath
         val executableName = File(validation.install.executablePath).name
@@ -135,6 +137,7 @@ class RuntimeLauncher(
             wineLoader = layout.wineLoader(flavour)?.absolutePath.orEmpty(),
             gameDirectory = gameDirectory,
             executableName = executableName,
+            wineDebug = wineDebug ?: WineEnvironment.DEFAULT_WINE_DEBUG,
         )
 
         val environment = buildMap {

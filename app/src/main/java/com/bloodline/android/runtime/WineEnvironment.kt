@@ -45,6 +45,16 @@ data class WineEnvironment(
 
     /** Executable to start, relative to [gameDirectory]. */
     val executableName: String = DEFAULT_EXECUTABLE,
+
+    /**
+     * `WINEDEBUG`: which of Wine's channels are on.
+     *
+     * [DEFAULT_WINE_DEBUG], not silence. See the note on that constant: this
+     * used to be `-all`, which meant that the one time the answer mattered —
+     * a Windows program crashing under Wine — the launcher had already told
+     * Wine not to say anything, and then asked the user what Wine said.
+     */
+    val wineDebug: String = DEFAULT_WINE_DEBUG,
 ) {
 
     /** `WINEPREFIX`: the directory Wine keeps its virtual Windows in. */
@@ -90,9 +100,8 @@ data class WineEnvironment(
         // relative path starts in the right place.
         put("WINE_GAME_DIRECTORY", gameDirectory)
 
-        // Wine's own chatter is enormous and it all goes through the same log
-        // path as our diagnostics. Off by default; -all means "no debug at all".
-        put("WINEDEBUG", "-all")
+        // Errors, warnings and the crash itself. See [DEFAULT_WINE_DEBUG].
+        put("WINEDEBUG", wineDebug)
 
         // Keep Wine's temporary files inside the directory we own rather than
         // letting them scatter into /tmp, which Android may not even permit.
@@ -129,6 +138,28 @@ data class WineEnvironment(
     companion object {
         const val DEFAULT_GAME_DRIVE = 'D'
         const val DEFAULT_EXECUTABLE = "Vampire.exe"
+
+        /**
+         * What Wine is asked to print.
+         *
+         * Deliberately **not** `-all`. Silence was the old value, and it was
+         * wrong for the same reason a black box recorder that is switched off
+         * is wrong: everything is quiet right up to the moment something
+         * breaks, and then there is nothing to read. A 32-bit program under
+         * Wine on a real device came back SIGSEGV, and the launcher had
+         * already suppressed the one thing that could say why.
+         *
+         * Errors and warnings are cheap. `seh` is what reports an unhandled
+         * exception, so it is the channel the crash arrives on. `module` and
+         * `loaddll` say whether the WoW64 layer and the guest's own DLLs were
+         * found, which is the question behind most 32-bit failures.
+         *
+         * The firehose (`trace+all`) is left off on purpose. Every line is
+         * kept anyway — bounded to the last few hundred by the process runner
+         * and to 256 KB by the report — so the volume is managed where it can
+         * be measured rather than by making Wine mute.
+         */
+        const val DEFAULT_WINE_DEBUG = "err+all,warn+all,fixme-all,trace+seh,trace+loaddll,trace+module"
 
         /** Everything the runtime owns, relative to [runtimeRoot]. */
         val ownedDirectories: List<String> get() = listOf("prefix", "tmp", "logs")

@@ -386,6 +386,7 @@ class RuntimeManager(
             backend = graphicsSelection().backend ?: return emptyList(),
             capabilities = capabilities,
             audio = audioBridge(),
+            wineDebug = configuration.wineDebug,
         )
         lastPlan = plan
 

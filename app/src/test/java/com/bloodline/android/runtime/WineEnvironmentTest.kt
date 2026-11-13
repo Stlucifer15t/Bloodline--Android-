@@ -1,6 +1,7 @@
 package com.bloodline.android.runtime
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -171,9 +172,27 @@ class WineEnvironmentTest {
     }
 
     @Test
-    fun `Wine debug output is off by default`() {
-        // Wine is extremely chatty and it all lands in the same log.
-        assertEquals("-all", environment().environment()["WINEDEBUG"])
+    fun `Wine is not muted, because a crash is exactly when it has to speak`() {
+        // The old value was -all. That was fine while everything worked and
+        // useless the moment it did not: a 32-bit program under Wine on a real
+        // device came back SIGSEGV, and the launcher had already told Wine not
+        // to print anything, then asked the user what Wine said.
+        val debug = environment().environment()["WINEDEBUG"].orEmpty()
+
+        assertFalse(debug, debug.contains("-all"))
+        // Errors and the exception that reports a crash have to be on.
+        assertTrue(debug, debug.contains("err+all"))
+        assertTrue(debug, debug.contains("trace+seh"))
+        // Whether the WoW64 layer was found is the question behind most of
+        // the 32-bit failures, so DLL loading is on too.
+        assertTrue(debug, debug.contains("trace+loaddll"))
+    }
+
+    @Test
+    fun `Wine debug channels can be set when something needs a closer look`() {
+        val environment = environment().copy(wineDebug = "trace+all")
+
+        assertEquals("trace+all", environment.environment()["WINEDEBUG"])
     }
 
     @Test
