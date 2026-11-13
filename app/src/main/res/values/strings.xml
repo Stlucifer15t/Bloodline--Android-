@@ -188,6 +188,22 @@
     <string name="settings_section_audio">Audio</string>
     <string name="settings_section_input">Input</string>
     <string name="settings_section_diagnostics">Diagnostics</string>
+    <string name="settings_section_native_port">Native port</string>
+
+    <!-- Native port tuning. This section edits another app's settings file, so
+         every string here says which app it affects. -->
+    <string name="setting_port_not_found">Native port not found</string>
+    <string name="setting_port_not_found_detail">No folder here contains Bin/engine.dll beside a Vampire folder. This section tunes the native ARM64 port, not this launcher; install it or move its folder into Download and reopen this screen.</string>
+    <string name="setting_port_folder">Game folder</string>
+    <string name="setting_port_folder_detail">The folder the native port reads its files from. This app only changes files inside it that the port itself writes.</string>
+    <string name="setting_port_detected">This device</string>
+    <string name="setting_port_current">Port settings now</string>
+    <string name="setting_port_current_detail">What the port will do the next time it starts, read from its own settings file.</string>
+    <string name="setting_port_restore">Restore previous settings</string>
+    <string name="setting_port_restore_detail">Puts back the settings file exactly as it was before this app first changed it.</string>
+    <string name="setting_port_restored">Previous settings restored</string>
+    <string name="setting_port_apply">Apply</string>
+    <string name="setting_port_applied">Applied: %1$s</string>
 
     <!-- Reasons a row is disabled. Shown verbatim so nothing is faked. -->
     <string name="setting_needs_runtime">Needs the compatibility runtime. The value is remembered and will be applied as soon as the runtime exists.</string>
