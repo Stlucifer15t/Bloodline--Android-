@@ -176,6 +176,39 @@ class ArchiveExtractorTest {
         assertTrue(TarExtractor.skippedEntries().any { it.startsWith("link") })
     }
 
+    @Test
+    fun `a tar symlink that stays inside the archive is created`() {
+        // Wine's bin/ is built from links: `wine64` and `wineboot` point at
+        // `wine`. Skipping them leaves four-byte files containing a path where
+        // a loader should be, and the failure surfaces much later as
+        // "No such file or directory".
+        val file = temporary.newFile("tar-safe-link.tar")
+        file.outputStream().buffered().use { out ->
+            out.write(tarHeader("bin/wine", 0, typeflag = '0'.code.toByte()))
+            out.write(ByteArray(512))
+            out.write(tarHeader("bin/wineboot", 4, typeflag = '2'.code.toByte()))
+            out.write("wine".toByteArray())
+            out.write(ByteArray(508))
+            out.write(ByteArray(1024))
+        }
+        val target = target("tar-symlink")
+
+        val result = extractor.extract(file, target)
+
+        assertTrue(result is ArchiveExtractor.Result.Success)
+        val link = File(target, "bin/wineboot")
+        assertTrue("the link should exist", link.exists() || isSymbolicLink(link))
+        assertTrue(isSymbolicLink(link))
+        assertEquals("wine", java.nio.file.Files.readSymbolicLink(link.toPath()).toString())
+        assertFalse(
+            "an in-archive link is not a skipped entry",
+            TarExtractor.skippedEntries().any { it.startsWith("bin/wineboot") },
+        )
+    }
+
+    private fun isSymbolicLink(file: File): Boolean =
+        java.nio.file.Files.isSymbolicLink(file.toPath())
+
     // ---------------------------------------------------------- path traversal
 
     @Test

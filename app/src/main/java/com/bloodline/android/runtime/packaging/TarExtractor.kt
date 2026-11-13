@@ -17,17 +17,19 @@ import java.io.InputStream
  *
  * * `ustar` and GNU headers, including the `prefix` field for long paths;
  * * GNU `L` long names and `K` long link names;
- * * regular files and directories.
+ * * regular files and directories;
+ * * **symlinks that stay inside the archive.** Wine's `bin/` depends on them:
+ *   `wine64`, `wineboot` and `winecfg` are links to `wine`, and dropping them
+ *   leaves four-byte files holding a path where a loader should be.
  *
- * Refused rather than emulated: hard links, device nodes, FIFOs and symlinks.
- * A package that needs those is not one to unpack silently, and a refusal is a
- * better outcome than a wrong guess. Symlinks are the notable one — a package
- * that links outside its own directory is exactly what this class exists to
- * stop — so they are skipped and *recorded*, not silently dropped.
+ * Refused rather than emulated: hard links, device nodes and FIFOs. A package
+ * that needs those is not one to unpack silently, and a refusal is a better
+ * outcome than a wrong guess. A symlink pointing outside the extraction root is
+ * skipped and *recorded* — that is exactly the case this class exists to stop.
  */
 internal class TarExtractor {
 
-    private enum class Kind { FILE, DIRECTORY, LONG_NAME, LONG_LINK_NAME, SKIPPABLE, REFUSED }
+    private enum class Kind { FILE, DIRECTORY, LONG_NAME, LONG_LINK_NAME, SYMLINK, SKIPPABLE, REFUSED }
 
     /**
      * Extracts [input] into [target].
@@ -109,6 +111,35 @@ internal class TarExtractor {
                     stream.skip(padding)
                 }
 
+                Kind.SYMLINK -> {
+                    // Wine's `bin/` is built from symlinks: `wine64`,
+                    // `wineboot`, `winecfg` and the rest are all links to
+                    // `wine`. Skipping them leaves four-byte files that
+                    // contain a path instead of a working loader, which is
+                    // then reported as "No such file or directory" somewhere
+                    // far from the cause.
+                    //
+                    // Only links that stay inside the archive are created, and
+                    // the target is checked before anything is written: a
+                    // package that points outside its own directory is exactly
+                    // what the resolver exists to stop.
+                    val destination = safeDestination(root, name)
+                        ?: throw SecurityException(name)
+                    if (!linkIsSafe(root, destination, linkName)) {
+                        recordSkipped(name, linkName)
+                    } else {
+                        destination.parentFile?.mkdirs()
+                        runCatching { destination.delete() }
+                        java.nio.file.Files.createSymbolicLink(
+                            destination.toPath(),
+                            java.nio.file.Paths.get(linkName),
+                        )
+                        written++
+                        onProgress(written)
+                    }
+                    stream.skip(size + padding)
+                }
+
                 Kind.SKIPPABLE -> {
                     recordSkipped(name, linkName)
                     stream.skip(size + padding)
@@ -134,10 +165,30 @@ internal class TarExtractor {
     private fun kindOf(typeflag: Byte): Kind = when (typeflag) {
         TYPE_LONG_NAME -> Kind.LONG_NAME
         TYPE_LONG_LINK_NAME -> Kind.LONG_LINK_NAME
-        TYPE_SYMLINK -> Kind.SKIPPABLE
+        TYPE_SYMLINK -> Kind.SYMLINK
         TYPE_DIRECTORY -> Kind.DIRECTORY
         TYPE_REGULAR, 0.toByte() -> Kind.FILE
         else -> Kind.REFUSED
+    }
+
+    /**
+     * Whether a symlink's target stays inside the extraction root.
+     *
+     * A link is written as its target text, so the target is resolved the same
+     * way a real path would be — against the *link's own directory*, because
+     * that is how the kernel resolves a relative symlink. Absolute targets and
+     * `..` that climbs out are refused: a package that links outside its own
+     * directory is not one to unpack.
+     */
+    private fun linkIsSafe(root: File, link: File, target: String): Boolean {
+        if (target.isBlank()) return false
+        if (target.startsWith("/")) return false
+        return runCatching {
+            val rootPath = root.canonicalFile.toPath()
+            val resolved = link.parentFile?.toPath()?.resolve(target)?.normalize()
+                ?: return false
+            resolved.startsWith(rootPath)
+        }.getOrDefault(false)
     }
 
     private fun recordSkipped(name: String, linkName: String) {

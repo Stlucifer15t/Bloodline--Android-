@@ -30,6 +30,16 @@ import java.io.IOException
 class RuntimeLauncher(
     private val store: RuntimePackageStore,
     private val layout: RuntimeLayout = RuntimeLayout(store),
+
+    /**
+     * The APK's `nativeLibraryDir`, when the caller has one.
+     *
+     * Android maps this directory executable and nothing else, which makes it
+     * the only place a PE image can be loaded from on a device that refuses
+     * `mmap(PROT_EXEC)` over app data. Null means "do not set `WINEDLLPATH`",
+     * which is honest: a caller without it is not claiming the workaround.
+     */
+    private val nativeLibraryDir: String? = null,
 ) {
 
     /** Everything needed to start the game, or the reasons it cannot be. */
@@ -185,6 +195,7 @@ class RuntimeLauncher(
                 wine.withRuntimePaths(
                     wineBin = layout.wineBinDir(flavour)?.absolutePath.orEmpty(),
                     libDirs = layout.libDirs(flavour).map { it.absolutePath },
+                    wineDllPath = nativeLibraryDir,
                 ),
             )
             putAll(graphics.environment())

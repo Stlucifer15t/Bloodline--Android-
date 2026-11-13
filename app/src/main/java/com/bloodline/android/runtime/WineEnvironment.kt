@@ -129,14 +129,35 @@ data class WineEnvironment(
      *
      * @param wineBin    the Wine build's `bin` directory.
      * @param libDirs    library directories, in search order.
+     * @param wineDllPath an executable directory holding Windows PE files, or
+     *        null. See [WINEDLLPATH] below — this is the fix for a measured
+     *        device failure, not a precaution.
      */
     fun withRuntimePaths(
         wineBin: String,
         libDirs: List<String>,
+        wineDllPath: String? = null,
     ): Map<String, String> = environment() + linkedMapOf(
         "PATH" to (listOf(wineBin) + libDirs.map { "$it/bin" }).joinToString(":"),
         "LD_LIBRARY_PATH" to libDirs.joinToString(":"),
-    )
+    ).apply {
+        // A measured Android 14 device refuses to map Wine's own PE files
+        // executable from the app data directory:
+        //
+        //   err:virtual:map_image_into_view failed to set 60000020 protection
+        //   on L"\\??\\C:\\windows\\system32\\ntdll.dll" ... noexec filesystem?
+        //
+        // The loader then runs the image non-executable and dies at the first
+        // instruction, which arrives as a SIGSEGV inside ntdll.so and reads
+        // like a Wine bug rather than a platform restriction.
+        //
+        // `nativeLibraryDir` is the one directory Android guarantees is mapped
+        // executable, which is why it extracts `lib*.so` there. So the Wine
+        // build's Windows DLLs are shipped inside the APK and Wine is pointed
+        // at that directory. The writable prefix keeps the registry and the
+        // user's files; only the read-only image files move.
+        if (wineDllPath != null) put(WINEDLLPATH, wineDllPath)
+    }
 
     /**
      * The command that starts the game.
@@ -164,6 +185,9 @@ data class WineEnvironment(
 
         /** The Source engine switch that selects a mod folder. */
         const val GAME_ARGUMENT = "-game"
+
+        /** Where Wine looks for its PE files, when they are not in the prefix. */
+        const val WINEDLLPATH = "WINEDLLPATH"
 
         /**
          * What Wine is asked to print.

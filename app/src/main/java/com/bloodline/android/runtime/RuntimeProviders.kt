@@ -40,7 +40,14 @@ object RuntimeProviders {
     /** The launcher wired to the same store as [packaged]. */
     fun launcher(context: Context): RuntimeLauncher {
         val store = RuntimePackageStore(runtimeRoot(context))
-        return RuntimeLauncher(store = store, layout = RuntimeLayout(store))
+        return RuntimeLauncher(
+            store = store,
+            layout = RuntimeLayout(store),
+            // The one directory Android maps executable. Wine's PE files are
+            // shipped there because a measured device refuses to map them
+            // executable from app data.
+            nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
+        )
     }
 
     /** Acquires the packages the runtime needs, for the first-run download. */

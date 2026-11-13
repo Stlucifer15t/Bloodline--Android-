@@ -1,6 +1,7 @@
 package com.bloodline.android.runtime
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -241,6 +242,37 @@ class WineEnvironmentTest {
 
         assertTrue(owned.contains("prefix"))
         assertTrue(!owned.contains("Vampire"))
+    }
+
+    @Test
+    fun `Wine is pointed at the executable library directory`() {
+        // Measured on a real Android 14 device: app data refuses
+        // mmap(PROT_EXEC) over a PE image, so wineboot cannot create drive_c
+        // and the game is never started. nativeLibraryDir is the one directory
+        // Android maps executable, so the PE files live there.
+        val variables = environment().withRuntimePaths(
+            wineBin = "/runtime/wine/bin",
+            libDirs = listOf("/runtime/wine/lib"),
+            wineDllPath = "/data/app/~~x==/com.bloodline.android/lib/arm64",
+        )
+
+        assertEquals(
+            "/data/app/~~x==/com.bloodline.android/lib/arm64",
+            variables[WineEnvironment.WINEDLLPATH],
+        )
+    }
+
+    @Test
+    fun `no library directory means no claim about WINEDLLPATH`() {
+        // A caller that does not know the directory must not assert one: the
+        // variable would point somewhere that does not exist and the failure
+        // would be reported far from its cause.
+        val variables = environment().withRuntimePaths(
+            wineBin = "/runtime/wine/bin",
+            libDirs = listOf("/runtime/wine/lib"),
+        )
+
+        assertNull(variables[WineEnvironment.WINEDLLPATH])
     }
 
     @Test
