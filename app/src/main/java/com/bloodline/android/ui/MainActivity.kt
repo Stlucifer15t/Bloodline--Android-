@@ -66,6 +66,7 @@ import com.bloodline.android.runtime.RuntimeCapabilities
 import com.bloodline.android.runtime.RuntimeCapabilitiesReader
 import com.bloodline.android.runtime.RuntimeComponent
 import com.bloodline.android.runtime.RuntimeDiagnostics
+import com.bloodline.android.runtime.LastRunStore
 import com.bloodline.android.runtime.RuntimeHost
 import com.bloodline.android.runtime.WineInitialiser
 import com.bloodline.android.runtime.RuntimeManager
@@ -172,6 +173,12 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
     /** GL renderer and GLES version, read from an EGL context off the main thread. */
     private var glRenderer: String = ""
     private var glesVersion: String = ""
+
+    /** How the last game run ended, for the diagnostics report. */
+    private var lastExit: GameProcessManager.ExitResult? = null
+
+    /** Survives the app being killed, so a later report still has the run. */
+    private val lastRunStore by lazy { LastRunStore(File(filesDir, "runtime/last-run.txt")) }
 
     /**
      * Owns the launch lifecycle.
@@ -327,6 +334,11 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             runGraphicsProbe()
         }
 
+        // The GL strings are read on every start, cached probe or not. See
+        // [measureGpuStrings]: reading them only inside the probe meant the
+        // second and every later launch believed this device had no GPU.
+        measureGpuStrings()
+
         val cachedProcess = probeCache.load(PROBE_PROCESS, BuildConfig.VERSION_NAME)
         if (cachedProcess != null) {
             processProbeResult =
@@ -467,6 +479,15 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         // most need explained — the game itself dying — is the one with no
         // evidence attached to it. A clean exit is not a failure and gets
         // nothing.
+        if (exit != null) {
+            lastExit = exit
+            // Written straight away, because the record has to outlive this
+            // process. A crash is investigated after the fact, and often after
+            // the app itself has been killed — which is precisely when an
+            // in-memory record is gone and a report generated on request can
+            // say nothing but "the previous session did not finish".
+            lastRunStore.save(exit)
+        }
         if (exit != null && exit.reason != GameProcessManager.ExitReason.CLEAN &&
             exit.reason != GameProcessManager.ExitReason.STOPPED
         ) {
@@ -866,15 +887,44 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      * Opens GPU device nodes and creates an EGL context, so it stays off the
      * main thread - an EGL context belongs to the thread that made it.
      */
+    /**
+     * Reads the GL renderer and GLES version, and feeds them to the runtime.
+     *
+     * Done on every start rather than only when the graphics probe has to
+     * run, which is what used to happen: the strings were read inside
+     * [runGraphicsProbe], so the *first* launch — the one with an empty cache
+     * — measured the GPU, and every launch after it read a cached probe and
+     * saw empty strings.
+     *
+     * The effect was that from the second start onwards the device had no
+     * GPU as far as the runtime was concerned: GLES 3.1 was reported as
+     * unsupported, the renderer the user had chosen was rejected for a
+     * requirement the device actually met, and the launcher fell back to
+     * software rendering — which is what a report from a real device showed,
+     * with "GPU renderer: unknown" sitting two lines above a device section
+     * that named a Mali-G52 and OpenGL ES 3.2.
+     *
+     * Off the main thread because an EGL context belongs to the thread that
+     * created it, and creating one is not free.
+     */
+    private fun measureGpuStrings() {
+        background.execute {
+            val gpu = runCatching { GpuInfo.probe() }.getOrNull()
+            val renderer = gpu?.renderer.orEmpty()
+            val version = gpu?.glVersion.orEmpty()
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                glRenderer = renderer
+                glesVersion = version
+                refreshCapabilities()
+            }
+        }
+    }
+
     private fun runGraphicsProbe() {
         background.execute {
             val result = GraphicsProbe.run(this)
-
-            // GL strings need an EGL context, and an EGL context belongs to
-            // the thread that created it, so they are read here.
-            val gpu = runCatching { GpuInfo.probe() }.getOrNull()
-            glRenderer = gpu?.renderer.orEmpty()
-            glesVersion = gpu?.glVersion.orEmpty()
 
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1700,7 +1750,18 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         runtimeComponents().forEach { component ->
             put(component.title, getString(component.status.labelRes()))
         }
-        putAll(runtimeHost.diagnosticsSection(capabilities = capabilities))
+        // The exit is passed, not left out. It used to be omitted entirely,
+        // which meant every report silently lost the one section that says
+        // how the run actually ended — and a report that cannot say that is
+        // a report that cannot be investigated. Falls back to the record
+        // written by the previous run, for the case where the app itself
+        // died and this is the next start.
+        putAll(
+            runtimeHost.diagnosticsSection(
+                capabilities = capabilities,
+                exit = lastExit ?: lastRunStore.load(),
+            ),
+        )
     }
 
     /**
