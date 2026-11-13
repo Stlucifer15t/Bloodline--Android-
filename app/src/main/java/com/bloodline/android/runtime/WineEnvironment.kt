@@ -55,6 +55,16 @@ data class WineEnvironment(
      * Wine not to say anything, and then asked the user what Wine said.
      */
     val wineDebug: String = DEFAULT_WINE_DEBUG,
+
+    /**
+     * Game argument, or null for the base game.
+     *
+     * Source-engine mods are selected with `-game <folder>`. Wesp5's Unofficial
+     * Patch installs as `Unofficial_Patch` and is **not** active unless the
+     * engine is told to load it, so omitting this runs vanilla Bloodlines while
+     * every patch file sits unused on disk.
+     */
+    val gameArgument: String? = null,
 ) {
 
     /** `WINEPREFIX`: the directory Wine keeps its virtual Windows in. */
@@ -128,16 +138,32 @@ data class WineEnvironment(
         "LD_LIBRARY_PATH" to libDirs.joinToString(":"),
     )
 
-    /** The command that starts the game. */
-    fun launchCommand(emulatorBinary: String?): List<String> = when {
-        flavour.needsEmulator && emulatorBinary != null ->
-            listOf(emulatorBinary, wineLoader, windowsExecutablePath)
-        else -> listOf(wineLoader, windowsExecutablePath)
+    /**
+     * The command that starts the game.
+     *
+     * The executable always comes first, then the game argument. Wine passes
+     * everything after the executable through to the program, so `-game
+     * Unofficial_Patch` reaches the Source engine and selects the patch.
+     *
+     * `-game` and its folder are two separate argv entries on purpose: a single
+     * `"-game Unofficial_Patch"` string arrives as one argument the engine does
+     * not recognise.
+     */
+    fun launchCommand(emulatorBinary: String?): List<String> {
+        val base = when {
+            flavour.needsEmulator && emulatorBinary != null ->
+                listOf(emulatorBinary, wineLoader, windowsExecutablePath)
+            else -> listOf(wineLoader, windowsExecutablePath)
+        }
+        return if (gameArgument != null) base + listOf(GAME_ARGUMENT, gameArgument) else base
     }
 
     companion object {
         const val DEFAULT_GAME_DRIVE = 'D'
         const val DEFAULT_EXECUTABLE = "Vampire.exe"
+
+        /** The Source engine switch that selects a mod folder. */
+        const val GAME_ARGUMENT = "-game"
 
         /**
          * What Wine is asked to print.

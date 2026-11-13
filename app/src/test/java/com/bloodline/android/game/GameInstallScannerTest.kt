@@ -131,6 +131,42 @@ class GameInstallScannerTest {
     }
 
     @Test
+    fun `records the Unofficial Patch when it sits beside the game`() {
+        val root = temporaryFolder.newFolder("patched").apply {
+            File(this, "Vampire.exe").createNewFile()
+            File(this, "Vampire").mkdirs()
+            File(this, "Unofficial_Patch").mkdirs()
+        }
+
+        val install = checkNotNull(scanner(appFolder(root)).findInstall())
+
+        assertTrue(install.hasUnofficialPatch)
+    }
+
+    @Test
+    fun `a vanilla install has no patch`() {
+        val root = temporaryFolder.newFolder("vanilla").apply {
+            File(this, "Vampire.exe").createNewFile()
+            File(this, "Vampire").mkdirs()
+        }
+
+        val install = checkNotNull(scanner(appFolder(root)).findInstall())
+
+        assertFalse(install.hasUnofficialPatch)
+    }
+
+    @Test
+    fun `finds the patch folder whatever its case`() {
+        val root = temporaryFolder.newFolder("patchcase").apply {
+            File(this, "Vampire.exe").createNewFile()
+            File(this, "Vampire").mkdirs()
+            File(this, "unofficial_patch").mkdirs()
+        }
+
+        assertTrue(checkNotNull(scanner(appFolder(root)).findInstall()).hasUnofficialPatch)
+    }
+
+    @Test
     fun `finds an installation nested inside sub folders`() {
         val root = temporaryFolder.newFolder("root")
         val nested = File(root, "Bloodlines").apply {

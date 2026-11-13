@@ -242,4 +242,33 @@ class WineEnvironmentTest {
         assertTrue(owned.contains("prefix"))
         assertTrue(!owned.contains("Vampire"))
     }
+
+    @Test
+    fun `the Unofficial Patch is selected with -game, not baked into the path`() {
+        val command = environment().copy(gameArgument = "Unofficial_Patch")
+            .launchCommand(emulatorBinary = null)
+
+        assertEquals(
+            listOf(
+                "/data/data/com.bloodline.android/runtime/wine/bin/wine",
+                "D:\\Vampire.exe",
+                "-game",
+                "Unofficial_Patch",
+            ),
+            command,
+        )
+    }
+
+    @Test
+    fun `a vanilla install passes no game argument`() {
+        val command = environment().launchCommand(emulatorBinary = null)
+
+        assertEquals(
+            listOf(
+                "/data/data/com.bloodline.android/runtime/wine/bin/wine",
+                "D:\\Vampire.exe",
+            ),
+            command,
+        )
+    }
 }

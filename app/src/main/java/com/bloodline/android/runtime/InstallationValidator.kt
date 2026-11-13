@@ -40,6 +40,16 @@ object InstallationValidator {
     /** The executable we are looking for. */
     const val EXECUTABLE_NAME = "Vampire.exe"
 
+    /**
+     * Wesp5's Unofficial Patch, which is how the game is actually played.
+     *
+     * It is a Source-engine mod folder: the engine is told to load it with
+     * `-game Unofficial_Patch`, so it has to sit next to `Vampire.exe` and the
+     * launch has to say so. Detected rather than required, because the vanilla
+     * game is still a legitimate install.
+     */
+    const val PATCH_DIRECTORY_NAME = "Unofficial_Patch"
+
     /** Bloodlines is a 32-bit game; this is the machine type we expect. */
     val EXPECTED_MACHINE: PeMachine = PeMachine.I386
 
@@ -150,6 +160,10 @@ object InstallationValidator {
                 machine = header.machine,
                 sizeBytes = header.sizeBytes,
                 subsystem = header.subsystem,
+                // The patch is a mod folder the engine loads by name. Recorded
+                // when present, because without this the launch runs the base
+                // game and every patch fix silently does nothing.
+                hasUnofficialPatch = entries[PATCH_DIRECTORY_NAME] == true,
             ),
         )
     }
@@ -458,6 +472,8 @@ data class ValidatedInstall(
     val machine: PeMachine,
     val sizeBytes: Long,
     val subsystem: PeSubsystem?,
+    /** True when `Unofficial_Patch/` sits beside the executable. */
+    val hasUnofficialPatch: Boolean = false,
 )
 
 /** The result of validating a folder. */

@@ -168,6 +168,14 @@ class RuntimeLauncher(
             gameDirectory = gameDirectory,
             executableName = executableName,
             wineDebug = wineDebug ?: WineEnvironment.DEFAULT_WINE_DEBUG,
+            // Selecting the patch is a launch argument, not a file copy. The
+            // engine loads it by folder name, so a detected patch that is not
+            // named here is a patch that does nothing.
+            gameArgument = if (validation.install.hasUnofficialPatch) {
+                InstallationValidator.PATCH_DIRECTORY_NAME
+            } else {
+                null
+            },
         )
 
         val environment = buildMap {
