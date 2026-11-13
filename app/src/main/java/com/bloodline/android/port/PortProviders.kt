@@ -19,16 +19,32 @@ import java.net.URL
  */
 object PortProviders {
 
+    /** The GL renderer, probed once per process and remembered. */
+    @Volatile
+    private var cachedRenderer: String? = null
+
+    @Volatile
+    private var rendererProbed = false
+
     /** Where downloaded driver packages are kept, under the app's own storage. */
     fun driverCache(context: Context): File =
         File(context.filesDir, "drivers").apply { mkdirs() }
 
-    /** Reads the device facts a driver decision needs. */
-    fun gpuIdentity(context: Context): GpuIdentity = DeviceProfile.read(
-        vendor = Build.MANUFACTURER.orEmpty(),
-        model = Build.MODEL.orEmpty(),
-        vulkanPacked = vulkanVersionCode(context),
-    )
+    /**
+     * Reads the device facts a driver decision needs.
+     *
+     * [glRenderer] is passed in rather than probed here: creating an EGL
+     * context is slow enough to freeze a screen, so the caller asks
+     * [probeRenderer] once and holds the answer. Null is honest — it means the
+     * caller has not probed yet, not that the device has no GPU.
+     */
+    fun gpuIdentity(context: Context, glRenderer: String? = cachedRenderer): GpuIdentity =
+        DeviceProfile.read(
+            vendor = Build.MANUFACTURER.orEmpty(),
+            model = Build.MODEL.orEmpty(),
+            vulkanPacked = vulkanVersionCode(context),
+            glRenderer = glRenderer,
+        )
 
     /**
      * The Vulkan version the platform advertises, or null.
@@ -71,4 +87,28 @@ object PortProviders {
 
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 60_000
+
+
+    /**
+     * Probes `GL_RENDERER` on a background thread and hands the result back on
+     * the calling thread's executor.
+     *
+     * Separate from [gpuIdentity] because creating an EGL context takes long
+     * enough to be visible as a freeze, and the settings screen must not do it
+     * while it is drawing. The result is cached: the GPU does not change.
+     */
+    fun probeRenderer(onResult: (String?) -> Unit) {
+        if (rendererProbed) {
+            onResult(cachedRenderer)
+            return
+        }
+        Thread({
+            val renderer = runCatching {
+                com.bloodline.android.diagnostics.GpuInfo.probe().renderer
+            }.getOrNull()
+            cachedRenderer = renderer
+            rendererProbed = true
+            onResult(renderer)
+        }, "bloodline-gpu-probe").apply { isDaemon = true }.start()
+    }
 }

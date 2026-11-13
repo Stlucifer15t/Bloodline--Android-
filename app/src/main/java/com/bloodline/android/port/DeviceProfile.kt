@@ -33,8 +33,18 @@ object DeviceProfile {
         vulkanPacked: Int?,
         gpuInfo: String? = readText(GPU_INFO),
         maliNodeExists: Boolean = File(MALI_NODE).exists(),
+        /**
+         * `GL_RENDERER` from an EGL context, when the caller has one.
+         *
+         * The fallback that matters: on a measured Android 14 device `gpuinfo`
+         * is `0600 root`, so the one file written to identify the GPU is
+         * unreadable by an app. The GL renderer string is not — it comes from
+         * an EGL context the app creates itself, and on that device it reads
+         * `Mali-G52 MC2`, which is exactly what the architecture mapping wants.
+         */
+        glRenderer: String? = null,
     ): GpuIdentity = GpuIdentity(
-        rawGpuInfo = gpuInfo,
+        rawGpuInfo = gpuInfo ?: glRenderer,
         hasMaliNode = maliNodeExists,
         vulkanVersion = vulkanPacked?.let(VulkanVersion::fromPacked),
         vendor = vendor,

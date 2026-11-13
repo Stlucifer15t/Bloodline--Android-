@@ -137,6 +137,15 @@ class SettingsActivity : AppCompatActivity() {
 
         buildSections()
 
+        // The GPU name is the input to the preset, and the file that holds it
+        // is root-only on this device, so it comes from an EGL context instead.
+        // Probed off the main thread and applied when it arrives; the section
+        // says "unknown" until then rather than inventing a value.
+        PortProviders.probeRenderer { renderer ->
+            if (renderer == null || isFinishing || isDestroyed) return@probeRenderer
+            runOnUiThread { rebuild() }
+        }
+
         binding.resetButton.setOnClickListener {
             settings.resetToDefaults()
             applyNow()
@@ -213,7 +222,7 @@ class SettingsActivity : AppCompatActivity() {
                     identity.architecture?.let { append(" · ").append(it.label) }
                     append(" · Vulkan ").append(identity.vulkanVersion?.toString() ?: "unknown")
                 },
-                value = if (install.hasPatch) "patch" else "base",
+                value = if (install.hasPatch) "patch installed" else "base game",
             )
 
             val currentHeight = snapshot?.renderHeight
