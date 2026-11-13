@@ -104,7 +104,7 @@ object PortProviders {
         }
         Thread({
             val renderer = runCatching {
-                com.bloodline.android.diagnostics.GpuInfo.probe().renderer
+                com.bloodline.android.diagnostics.GpuInfo.probe()?.renderer
             }.getOrNull()
             cachedRenderer = renderer
             rendererProbed = true
