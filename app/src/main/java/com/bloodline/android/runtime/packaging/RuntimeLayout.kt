@@ -241,6 +241,7 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
                 return null
             }
             java.nio.file.Files.createSymbolicLink(path, gameDirectory.toPath())
+            drive
         } catch (error: Exception) {
             null
         }
