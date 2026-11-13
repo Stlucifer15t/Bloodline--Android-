@@ -1,5 +1,6 @@
 package com.bloodline.android.runtime
 
+import com.bloodline.android.BuildConfig
 import com.bloodline.android.runtime.backends.AudioBridge
 import com.bloodline.android.runtime.backends.CpuTranslator
 import com.bloodline.android.runtime.backends.GraphicsBackend
@@ -73,6 +74,13 @@ object RuntimeDiagnostics {
         )
         put("Measurements available", yesNo(capabilities.measured))
 
+        // --- which build produced this report ------------------------------
+        // First, because a report that cannot be tied to a build is a report
+        // that can be argued with. Two pasted failures looked identical and
+        // came from builds an entire fix apart; the version is what makes
+        // that impossible to repeat.
+        put("Launcher version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+
         // --- what the runtime chose, and why -------------------------------
         put("Graphics backend", graphics.backend?.title ?: "none available")
         put("Graphics reason", graphics.reason)
@@ -85,6 +93,10 @@ object RuntimeDiagnostics {
         put("Graphics preference", configuration.graphicsBackend?.title ?: "automatic")
         put("CPU preference", configuration.cpuTranslator?.title ?: "automatic")
         put("Audio preference", configuration.audioBackend?.title ?: "automatic")
+        // What Wine is told to print. Recorded because a report saying "Wine
+        // printed nothing" means opposite things depending on it: silence when
+        // asked to speak is a finding, silence when told to be quiet is not.
+        put("WINEDEBUG", configuration.wineDebug ?: WineEnvironment.DEFAULT_WINE_DEBUG)
 
         // --- the installation ---------------------------------------------
         when (validation) {

@@ -125,6 +125,8 @@
     <string name="launch_in_game_no_surface">The game process started, but this build has no surface to draw it on yet.</string>
     <string name="launch_failure_heading">Last launch attempt</string>
     <string name="launch_failure_output_heading">What %1$s printed:</string>
+    <string name="launch_failure_build">Launcher %1$s (%2$d) · WINEDEBUG=%3$s</string>
+    <string name="wine_32bit_check_warning">The 32-bit check crashed (%1$s). Starting the game anyway — it may well fail the same way.</string>
 
     <!-- Runtime acquisition: the runtime is downloaded, never bundled. -->
     <string name="runtime_install_title">Install the compatibility runtime?</string>

@@ -101,6 +101,10 @@ class WineInitialiserTest {
     private fun exited(code: Int, vararg output: String) =
         ProcessRunner.Outcome.Exited(code, output.toList(), 12L)
 
+    /** 139 is 128 + SIGSEGV: what a Windows program crashing under Wine looks like. */
+    private fun crashed(code: Int, vararg output: String) =
+        ProcessRunner.Outcome.Exited(code, output.toList(), 201L)
+
     // ------------------------------------------------------------------ tests
 
     @Test
@@ -231,6 +235,52 @@ class WineInitialiserTest {
         assertFalse(report.succeeded)
         assertEquals(WineInitialiser.Stage.WOW64, report.failedAt?.stage)
         assertTrue(report.describe(), report.describe().contains("expected 3"))
+    }
+
+    @Test
+    fun `a crashed 32-bit check warns but does not stop the launch`() {
+        // The game is not the program this stage ran. It ran a stand-in —
+        // cmd.exe, a console program that drags in conhost.exe, which the
+        // game never touches — so its crash is evidence about the stand-in
+        // and a prediction about the game, not a result.
+        //
+        // Vetoing the launch here is the one move that guarantees we learn
+        // nothing: the game never runs, so its own output never exists.
+        val (initialiser, _) = initialiser(exited(0), exited(0), crashed(139))
+
+        val report = initialiser.initialise(WineFlavour.WOW64_BOX64, emptyMap())
+
+        // It is still a failure, and still reported as one.
+        assertFalse(report.succeeded)
+        assertEquals(WineInitialiser.Stage.WOW64, report.failedAt?.stage)
+        // But it does not block the launch...
+        assertEquals(null as WineInitialiser.StageResult?, report.blockingFailure)
+        // ...it is carried as a warning instead.
+        assertEquals(WineInitialiser.Stage.WOW64, report.warning?.stage)
+        assertTrue(report.warning?.describe() ?: "", report.warning!!.describe().contains("SIGSEGV"))
+    }
+
+    @Test
+    fun `any other failed stage still stops the launch`() {
+        // A prefix that will not initialise leaves nothing to launch into,
+        // so unlike the 32-bit check these keep their veto.
+        val (initialiser, _) = initialiser(exited(0), exited(2), exited(3))
+
+        val report = initialiser.initialise(WineFlavour.WOW64_BOX64, emptyMap())
+
+        assertEquals(WineInitialiser.Stage.PREFIX, report.blockingFailure?.stage)
+        assertEquals(null as WineInitialiser.StageResult?, report.warning)
+    }
+
+    @Test
+    fun `a clean run warns about nothing`() {
+        val (initialiser, _) = initialiser(exited(0), exited(0), exited(3))
+
+        val report = initialiser.initialise(WineFlavour.WOW64_BOX64, emptyMap())
+
+        assertTrue(report.describe(), report.succeeded)
+        assertEquals(null as WineInitialiser.StageResult?, report.warning)
+        assertEquals(null as WineInitialiser.StageResult?, report.blockingFailure)
     }
 
     @Test

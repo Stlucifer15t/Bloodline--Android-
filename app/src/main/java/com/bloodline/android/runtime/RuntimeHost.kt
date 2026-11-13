@@ -97,6 +97,17 @@ class RuntimeHost(
 
         /** Something went wrong before a process existed. */
         fun onError(message: String)
+
+        /**
+         * The 32-bit check failed, and the game is being started anyway.
+         *
+         * Not an error, because nothing has failed yet: the check ran a
+         * stand-in for the game, and a stand-in that crashed is a reason to
+         * expect a crash, not a result. Delivered as the stage result rather
+         * than as a sentence so the host can phrase it — this layer has no
+         * [android.content.Context] and so no strings.
+         */
+        fun onWineWarning(failed: WineInitialiser.StageResult) {}
     }
 
     private var validation: InstallValidation? = null
@@ -122,6 +133,11 @@ class RuntimeHost(
         manager.onWineStage = { stage, index, total ->
             host.onLaunchProgress("${stage.title} ($index of $total)…")
         }
+
+        // The 32-bit check crashed, and we are launching the game anyway.
+        // Said out loud because otherwise the launch looks like it ignored a
+        // failure rather than deciding that a stand-in's crash is not proof.
+        manager.onWineWarning = { failed -> host.onWineWarning(failed) }
     }
 
     /** The current lifecycle phase. */
@@ -152,6 +168,14 @@ class RuntimeHost(
      * cannot be understood from one line.
      */
     fun initialisation(): WineInitialiser.Report? = manager.initialisation()
+
+    /**
+     * The environment the game would be started with, for diagnostics.
+     *
+     * A pasted failure that says "Wine printed nothing" is only interpretable
+     * next to what Wine was asked to print, and that lives in here.
+     */
+    fun plannedEnvironment(): Map<String, String> = manager.plannedEnvironment()
 
     /**
      * What the runtime would use right now, for the UI to show.

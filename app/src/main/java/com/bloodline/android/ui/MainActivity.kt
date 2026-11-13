@@ -67,6 +67,7 @@ import com.bloodline.android.runtime.RuntimeCapabilitiesReader
 import com.bloodline.android.runtime.RuntimeComponent
 import com.bloodline.android.runtime.RuntimeDiagnostics
 import com.bloodline.android.runtime.RuntimeHost
+import com.bloodline.android.runtime.WineInitialiser
 import com.bloodline.android.runtime.RuntimeManager
 import com.bloodline.android.runtime.RuntimeProbe
 import com.bloodline.android.runtime.PackagedRuntimeProvider
@@ -434,6 +435,13 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         binding.launchProgressText.text = message
     }
 
+    override fun onWineWarning(failed: WineInitialiser.StageResult) = runOnUiThread {
+        if (isFinishing || isDestroyed) return@runOnUiThread
+        binding.launchProgress.isVisible = true
+        binding.launchProgressText.text =
+            getString(R.string.wine_32bit_check_warning, failed.describe())
+    }
+
     override fun onFinished(message: String) = runOnUiThread {
         showMessage(message)
         updateLaunchState()
@@ -455,6 +463,21 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      * to discover that a Windows program segfaulted.
      */
     private fun describeLaunchFailure(message: String): String = buildString {
+        // Which build produced this, and what Wine was asked to print.
+        // Without these two a pasted failure cannot be told apart from an
+        // older build's, and that ambiguity already cost a round: the same
+        // one-line message came from a Wine that had been told to stay
+        // silent and from one that had not, with no way to know which.
+        val debug = runtimeHost.plannedEnvironment()["WINEDEBUG"]
+        appendLine(
+            getString(
+                R.string.launch_failure_build,
+                BuildConfig.VERSION_NAME,
+                BuildConfig.VERSION_CODE,
+                debug ?: "unset",
+            ),
+        )
+        appendLine()
         appendLine(message)
 
         val report = runtimeHost.initialisation()

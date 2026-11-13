@@ -98,6 +98,16 @@ class RuntimeManager(
      */
     var onWineStage: ((WineInitialiser.Stage, Int, Int) -> Unit)? = null
 
+    /**
+     * Called when the 32-bit check failed but the launch is going ahead.
+     *
+     * A warning, not an error: the check runs a stand-in for the game, and
+     * the stand-in crashed, so the game is expected to crash too — but
+     * "expected" is a prediction, not a result. The launch continues and
+     * this is what lets the screen say why the attempt is being made anyway.
+     */
+    var onWineWarning: ((WineInitialiser.StageResult) -> Unit)? = null
+
     private var capabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
 
     private var processManager = GameProcessManager()
@@ -265,12 +275,19 @@ class RuntimeManager(
             null -> Unit // No initialiser: nothing can be checked, so nothing is claimed.
             else -> {
                 lastInitialisation = broughtUp
-                val failed = broughtUp.failedAt
+                val failed = broughtUp.blockingFailure
                 if (failed != null) {
                     lastError = failed.describe()
                     publish(Phase.Restored(failed.describe()))
                     return phase
                 }
+
+                // A failed 32-bit check does not stop us. It ran a stand-in
+                // for the game, not the game, and the stand-in carries a
+                // console host the game never touches — so it can fail while
+                // the game would have started. Say so loudly, then try the
+                // real thing, because the real thing is the evidence.
+                broughtUp.warning?.let { onWineWarning(it) }
             }
         }
 
@@ -402,6 +419,16 @@ class RuntimeManager(
 
     /** How far Wine got the last time it was brought up, or null. */
     fun initialisation(): WineInitialiser.Report? = lastInitialisation
+
+    /**
+     * The environment the game would be started with.
+     *
+     * For diagnostics only, and worth having because it settles the argument
+     * that cannot be settled from a pasted failure message: what Wine was
+     * actually told to print. A report that says Wine said nothing is only
+     * meaningful next to the value of `WINEDEBUG` it was given.
+     */
+    fun plannedEnvironment(): Map<String, String> = lastPlan?.environment.orEmpty()
 
     /** True while a game process is still running. */
     fun isRunning(): Boolean = processManager.isRunning

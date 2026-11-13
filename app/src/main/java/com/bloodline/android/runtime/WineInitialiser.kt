@@ -134,6 +134,41 @@ class WineInitialiser(
         val failedAt: StageResult? get() = results.firstOrNull { it.failed }
 
         /**
+         * The failure that means the game cannot be attempted at all.
+         *
+         * Nearly every stage earns its veto: a loader that will not execute,
+         * or a prefix that will not initialise, leaves nothing to launch
+         * into. [Stage.WOW64] is the exception, and it is an exception on
+         * principle rather than by convenience.
+         *
+         * Every other stage tests Wine itself. This one tests a **stand-in
+         * for the game** — a 32-bit program that ships with Wine — and a
+         * stand-in that dies is evidence, not proof. Worse, this particular
+         * stand-in is `cmd.exe`, a console program, so Wine also has to host
+         * `conhost.exe` to give it a console. The game is a graphical
+         * program and never touches any of that. The check can therefore
+         * fail for a reason that has nothing to do with whether the game
+         * would have started.
+         *
+         * Refusing to launch on the strength of it is the one move that
+         * guarantees we learn nothing: the real program never runs, so its
+         * own output — the only evidence that actually settles the question
+         * — is never produced.
+         */
+        val blockingFailure: StageResult? get() =
+            results.firstOrNull { it.failed && it.stage != Stage.WOW64 }
+
+        /**
+         * A failure worth shouting about but not worth stopping for.
+         *
+         * Only [Stage.WOW64] can appear here. It is reported to the user and
+         * then the game is attempted anyway, on the reasoning in
+         * [blockingFailure].
+         */
+        val warning: StageResult? get() =
+            results.firstOrNull { it.failed && it.stage == Stage.WOW64 }
+
+        /**
          * Stages that were skipped, so nothing was actually measured.
          *
          * Reported separately rather than folded into success or failure:
