@@ -49,13 +49,22 @@ class ArchiveExtractorTest {
     }
 
     /** The 512-byte tar header, with the checksum the format requires. */
-    private fun tarHeader(name: String, size: Int, typeflag: Byte = '0'.code.toByte()): ByteArray {
+    private fun tarHeader(
+        name: String,
+        size: Int,
+        typeflag: Byte = '0'.code.toByte(),
+        linkName: String = "",
+    ): ByteArray {
         val block = ByteArray(512)
         val nameBytes = name.toByteArray(Charsets.UTF_8)
         System.arraycopy(nameBytes, 0, block, 0, minOf(nameBytes.size, 100))
         val sizeText = String.format("%011o", size).toByteArray(Charsets.US_ASCII)
         System.arraycopy(sizeText, 0, block, 124, sizeText.size)
         block[156] = typeflag
+        // The target of a link lives at offset 157, 100 bytes. Without it a
+        // symlink entry carries an empty name and is correctly refused.
+        val linkBytes = linkName.toByteArray(Charsets.UTF_8)
+        System.arraycopy(linkBytes, 0, block, 157, minOf(linkBytes.size, 100))
         "ustar\u000000".toByteArray(Charsets.US_ASCII).copyInto(block, 257)
 
         // The checksum counts its own field as eight spaces, so the field is
@@ -186,7 +195,7 @@ class ArchiveExtractorTest {
         file.outputStream().buffered().use { out ->
             out.write(tarHeader("bin/wine", 0, typeflag = '0'.code.toByte()))
             out.write(ByteArray(512))
-            out.write(tarHeader("bin/wineboot", 4, typeflag = '2'.code.toByte()))
+            out.write(tarHeader("bin/wineboot", 4, typeflag = '2'.code.toByte(), linkName = "wine"))
             out.write("wine".toByteArray())
             out.write(ByteArray(508))
             out.write(ByteArray(1024))
