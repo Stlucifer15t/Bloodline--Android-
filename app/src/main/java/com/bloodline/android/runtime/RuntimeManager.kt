@@ -287,7 +287,7 @@ class RuntimeManager(
                 // console host the game never touches — so it can fail while
                 // the game would have started. Say so loudly, then try the
                 // real thing, because the real thing is the evidence.
-                broughtUp.warning?.let { onWineWarning(it) }
+                broughtUp.warning?.let { onWineWarning?.invoke(it) }
             }
         }
 
