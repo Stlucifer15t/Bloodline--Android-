@@ -387,7 +387,19 @@ class RuntimeManager(
         // process went on to do can be tied back to this run in logcat.
         processManager.attachPid(gameHandle?.pid)
 
-        publish(Phase.InGame)
+        // A game that dies immediately is the common case while the runtime is
+        // incomplete, and it is exactly the case this used to get wrong: the
+        // exit callback runs on the runner's thread and can fire before this
+        // line, so an unconditional publish here overwrote a real exit with
+        // "in game". The screen then claimed the game was running while its
+        // own crash report had already been written.
+        //
+        // Publishing InGame only while a process is genuinely alive keeps the
+        // two in agreement; when it has already exited, the exit callback is
+        // what the UI hears, and it is the accurate one.
+        if (processManager.isRunning) {
+            publish(Phase.InGame)
+        }
         return phase
     }
 
@@ -404,6 +416,11 @@ class RuntimeManager(
             plan = lastPlan,
             onLine = onOutput,
             onStage = { stage, index, total -> onWineStage?.invoke(stage, index, total) },
+            // A prefix that has already been created and verified is not
+            // rebuilt: wineboot, every registry write and the 32-bit probe
+            // would otherwise run again on every launch, which is minutes of
+            // a phone's time spent re-learning a fact.
+            reuseInitialisedPrefix = true,
         )
 
     /**

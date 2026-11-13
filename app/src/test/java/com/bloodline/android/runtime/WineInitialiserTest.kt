@@ -342,6 +342,101 @@ class WineInitialiserTest {
         }
     }
 
+    @Test
+    fun `a prefix that has already been created is not rebuilt`() {
+        // wineboot, every registry write and the 32-bit probe are minutes of a
+        // phone's time. Once the prefix exists and was verified, a second
+        // launch must not pay for them again.
+        val root = temporary.newFolder("cached-init")
+        val store = RuntimePackageStore(root)
+        val wineRoot = store.packageDir(RuntimePackageCatalog.WINE_ARM64EC)
+
+        File(wineRoot, "bin").mkdirs()
+        File(wineRoot, "bin/wine").writeBytes(elf(AARCH64, "/system/bin/linker64"))
+        File(wineRoot, "lib/wine/i386-windows").mkdirs()
+        File(wineRoot, "lib/wine/i386-windows/cmd.exe").writeBytes(byteArrayOf(0x4d, 0x5a))
+        store.prefixDir().mkdirs()
+
+        var runs = 0
+        val runner = object : CommandRunner {
+            override fun run(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+            ): ProcessRunner.Outcome {
+                runs += 1
+                return when {
+                    request.command.any { it.contains("--version") } -> exited(0)
+                    request.command.any { it.contains("wineboot") } -> exited(0)
+                    else -> exited(3)
+                }
+            }
+
+            override fun launch(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+                onExit: (ProcessRunner.Outcome) -> Unit,
+            ): ProcessRunner.Handle {
+                onExit(exited(0))
+                return noHandle()
+            }
+        }
+
+        val initialiser = WineInitialiser(runner, RuntimeLayout(store), store)
+
+        val first = initialiser.initialise(
+            WineFlavour.WOW64_BOX64,
+            emptyMap(),
+            reuseInitialisedPrefix = true,
+        )
+
+        assertTrue(first.describe(), first.prefixIsUsable)
+        assertTrue("no Wine process ran on the first launch", runs > 0)
+        val runsAfterFirst = runs
+
+        val second = initialiser.initialise(
+            WineFlavour.WOW64_BOX64,
+            emptyMap(),
+            reuseInitialisedPrefix = true,
+        )
+
+        assertEquals("a cached prefix must not start Wine again", runsAfterFirst, runs)
+        assertTrue(second.results.isNotEmpty())
+        // Reported as skipped, not as success: nothing ran, and a report that
+        // claimed it did would be inventing a measurement.
+        assertTrue(second.results.all { !it.performed })
+    }
+
+    @Test
+    fun `a failed prefix is not remembered`() {
+        // Writing the record after a failure would make the next launch skip
+        // the very stage that broke.
+        val root = temporary.newFolder("failed-init")
+        val store = RuntimePackageStore(root)
+        val wineRoot = store.packageDir(RuntimePackageCatalog.WINE_ARM64EC)
+
+        File(wineRoot, "bin").mkdirs()
+        File(wineRoot, "bin/wine").writeBytes(elf(AARCH64, "/system/bin/linker64"))
+
+        val initialiser = WineInitialiser(
+            scriptedRunner(exited(0)),
+            RuntimeLayout(store),
+            store,
+        )
+
+        // --version succeeds, wineboot is answered by the script running out,
+        // which is a failure.
+        initialiser.initialise(
+            WineFlavour.WOW64_BOX64,
+            emptyMap(),
+            reuseInitialisedPrefix = true,
+        )
+
+        assertFalse(
+            "a failed prefix must not be recorded as initialised",
+            store.initialisationMarker().isFile,
+        )
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** A minimal but genuine ELF64 header, so the real parser runs. */

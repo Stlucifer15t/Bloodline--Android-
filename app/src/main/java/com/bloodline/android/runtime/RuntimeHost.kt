@@ -205,15 +205,18 @@ class RuntimeHost(
     fun launch(): RuntimeManager.Phase {
         var handedOver = false
         return try {
-            // The screen is only handed over once there is actually something to
-            // hand it to, and it is always handed back in the finally block.
+            // The manager publishes each phase itself, so this only reads the
+            // one it stopped at. Publishing again would double every UI update.
             val phase = manager.start(validation)
-            publish(phase)
 
-            if (phase is RuntimeManager.Phase.InGame) {
+            // Handing the screen over is gated on a live process, not on the
+            // phase: a game that died inside `start()` still reports InGame,
+            // and taking the screen for it would flip the device to landscape
+            // and straight back for a process that no longer exists.
+            if (phase is RuntimeManager.Phase.InGame && manager.isRunning()) {
                 host.enterGameplay()
                 handedOver = true
-            } else {
+            } else if (phase !is RuntimeManager.Phase.InGame) {
                 val reason = manager.error() ?: "The runtime is not ready."
                 host.onError(reason)
             }

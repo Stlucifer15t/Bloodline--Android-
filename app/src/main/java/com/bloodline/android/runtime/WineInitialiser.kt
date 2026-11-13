@@ -213,10 +213,30 @@ class WineInitialiser(
         plan: RuntimeLauncher.LaunchPlan? = null,
         onLine: (String) -> Unit = {},
         onStage: (Stage, Int, Int) -> Unit = { _, _, _ -> },
+        /**
+         * When true, a prefix this build has already brought up is reused
+         * instead of being rebuilt.
+         *
+         * Off by default so that every existing caller — and every test —
+         * keeps the full, measured sequence. The launch path turns it on,
+         * because paying `wineboot`, every registry write and the 32-bit
+         * probe again on each launch is minutes of a phone's time to learn
+         * something that was already known.
+         */
+        reuseInitialisedPrefix: Boolean = false,
     ): Report {
         val results = mutableListOf<StageResult>()
         val total = Stage.entries.size
         fun starting(stage: Stage) = onStage(stage, stage.ordinal + 1, total)
+
+        // ---- 0. is this prefix already up? ---------------------------------
+        // Before any process is started, because that is the entire saving.
+        // The record is keyed on the Wine build, the WoW64 layer and the
+        // flavour, so a re-downloaded Wine or a wiped prefix invalidates it
+        // by itself rather than by anyone remembering to clear it.
+        if (reuseInitialisedPrefix) {
+            cachedReport(flavour)?.let { return it }
+        }
 
         // ---- 1. what the binary actually is --------------------------------
         starting(Stage.VALIDATE)
@@ -307,7 +327,54 @@ class WineInitialiser(
         starting(Stage.WOW64)
         results += runWow64Test(flavour, loader, environment, onLine)
 
-        return Report(results)
+        val report = Report(results)
+
+        // Only a prefix that got past creation is worth remembering. A record
+        // written after a failed stage would make the next launch skip the
+        // very thing that failed.
+        if (reuseInitialisedPrefix && report.prefixIsUsable) {
+            recordInitialisation(flavour, report)
+        }
+
+        return report
+    }
+
+    /**
+     * The stored report for a prefix this build already brought up, or null.
+     *
+     * A null answer means "run the real sequence": the prefix is missing, the
+     * Wine build changed, or the record cannot be read. Every one of those is
+     * a reason to measure rather than to assume.
+     */
+    private fun cachedReport(flavour: WineFlavour): Report? {
+        val marker = store.initialisationMarker()
+        if (!marker.isFile) return null
+        if (!store.prefixDir().isDirectory) return null
+
+        val lines = runCatching { marker.readLines() }.getOrNull() ?: return null
+        if (lines.firstOrNull()?.trim() != store.initialisationFingerprint(flavour.name)) return null
+
+        // The stages that matter to a launch are replayed as *skipped*, not as
+        // successful: nothing ran this time, and a report that claimed it did
+        // would be a fabricated measurement.
+        val stages = Stage.entries.filter { it != Stage.WOW64 }.map {
+            StageResult(it, skippedBecause = "the prefix was initialised by an earlier launch")
+        }
+        return Report(stages)
+    }
+
+    /** Writes the marker that lets the next launch skip the sequence. */
+    private fun recordInitialisation(flavour: WineFlavour, report: Report) {
+        runCatching {
+            val marker = store.initialisationMarker()
+            marker.parentFile?.mkdirs()
+            marker.writeText(
+                buildString {
+                    appendLine(store.initialisationFingerprint(flavour.name))
+                    appendLine(report.describe())
+                },
+            )
+        }
     }
 
     /**
