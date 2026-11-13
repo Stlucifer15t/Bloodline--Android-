@@ -315,6 +315,20 @@ class RuntimeManager(
             }
         }
 
+        // The game is launched as `D:\Vampire.exe`, so the prefix must map a
+        // `D:` drive to the game's folder. This is a filesystem step (a symlink
+        // in `dosdevices`), not a Wine command, so it does not need a display.
+        val gameDirectory = java.io.File((validation as InstallValidation.Valid).install.executablePath).parentFile
+        when (val drive = launcher?.prepareGameDrive(gameDirectory)) {
+            null -> Unit
+            is RuntimeLauncher.Preparation.Ready -> Unit
+            is RuntimeLauncher.Preparation.Failed -> {
+                lastError = drive.reason
+                publish(Phase.Restored(drive.reason))
+                return phase
+            }
+        }
+
         if (!processManager.onLaunch(command)) {
             val state = processManager.state()
             val reason = (state as? GameProcessManager.State.Failed)?.reason

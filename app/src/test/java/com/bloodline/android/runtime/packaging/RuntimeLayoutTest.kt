@@ -149,4 +149,51 @@ class RuntimeLayoutTest {
 
         assertTrue(libs.first().path.contains("wine"))
     }
+
+    @Test
+    fun `the WoW64 package directory is on the library search path`() {
+        // wowbox64.dll links against libbox64.so, which lives in the WOWBox64
+        // package. If that directory is not searched, the DLL loads and then
+        // fails to resolve its own dependency.
+        val store = store()
+        put(store, RuntimePackageCatalog.WINE_ARM64EC, "bin/wine")
+        put(store, RuntimePackageCatalog.WOWBOX64, "wowbox64.dll")
+
+        val libs = RuntimeLayout(store).libDirs()
+
+        assertTrue(
+            libs.any { it.path.contains("wowbox64", ignoreCase = true) },
+        )
+    }
+
+    @Test
+    fun `the game folder is mapped to drive D in the prefix`() {
+        val store = store()
+        val game = temporary.newFolder("Bloodlines")
+        val layout = RuntimeLayout(store)
+
+        val link = layout.mapGameDrive(game)
+
+        assertNotNull(link)
+        assertEquals("d:", link!!.name)
+        assertEquals(
+            game.toPath(),
+            java.nio.file.Files.readSymbolicLink(link.toPath()),
+        )
+        assertEquals(layout.dosDevicesDirectory(), link.parentFile)
+    }
+
+    @Test
+    fun `mapping the same folder twice is idempotent`() {
+        val store = store()
+        val game = temporary.newFolder("Bloodlines")
+        val layout = RuntimeLayout(store)
+
+        val first = layout.mapGameDrive(game)
+        val second = layout.mapGameDrive(game)
+
+        assertNotNull(first)
+        assertNotNull(second)
+        assertTrue(java.nio.file.Files.isSymbolicLink(second!!.toPath()))
+    }
 }

@@ -107,6 +107,32 @@ class RuntimeLauncher(
         layout.wow64DllInPrefix(flavour)
 
     /**
+     * Maps the game's folder to a drive letter in the prefix.
+     *
+     * Without this, the launch command points at `D:\Vampire.exe` in a prefix
+     * that has no `D:`. This creates the `dosdevices/d:` symlink so Wine can
+     * resolve the game.
+     *
+     * @param gameDirectory absolute Unix path of the folder that holds the game.
+     * @return [Preparation.Ready] when the drive is mapped, or a reason when the
+     *         prefix is not present yet (nothing was checked, so nothing is claimed).
+     */
+    fun prepareGameDrive(gameDirectory: File): Preparation {
+        val dosDevices = layout.dosDevicesDirectory()
+        val prefixExists = dosDevices.isDirectory || dosDevices.parentFile?.isDirectory == true
+        if (!prefixExists) {
+            return Preparation.Failed(
+                "The Wine prefix does not exist yet, so no drive could be mapped.",
+            )
+        }
+        return if (layout.mapGameDrive(gameDirectory) != null) {
+            Preparation.Ready
+        } else {
+            Preparation.Failed("The game folder could not be mapped to a drive letter in the prefix.")
+        }
+    }
+
+    /**
      * Builds the launch plan.
      *
      * @param validation  the validated installation, which supplies the game

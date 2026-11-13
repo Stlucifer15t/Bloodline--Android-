@@ -85,6 +85,7 @@ import com.bloodline.android.settings.UiScaleApplier
 import com.bloodline.android.storage.DocumentFolder
 import com.bloodline.android.storage.GameFolderStore
 import com.bloodline.android.storage.SharedPreferencesInstallMetadataStore
+import com.bloodline.android.storage.SafPathResolver
 import com.bloodline.android.storage.StorageLocations
 import java.io.File
 import java.text.DateFormat
@@ -846,12 +847,33 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                             "the permission for that folder.",
                         detail = InstallationValidator.EXECUTABLE_NAME,
                     )
+                val executableName = executable.name
 
-                InstallationValidator.validate(
+                val validation = InstallationValidator.validate(
                     path = found.location.displayPath,
                     entries = entries,
                     openExecutable = { stream },
                 )
+
+                // A folder picked through the Storage Access Framework is a
+                // `content://` tree, which a native Wine process cannot read.
+                // The tree's document id still names the real path, so recover
+                // it here: the launch command needs a path on disk, not a URI.
+                val resolved = if (validation is InstallValidation.Valid) {
+                    SafPathResolver.resolve(this, found.location)
+                } else {
+                    null
+                }
+                if (validation is InstallValidation.Valid && resolved != null) {
+                    validation.copy(
+                        install = validation.install.copy(
+                            rootPath = resolved.absolutePath,
+                            executablePath = File(resolved, executableName).absolutePath,
+                        ),
+                    )
+                } else {
+                    validation
+                }
             }.getOrElse { error ->
                 InstallValidation.Invalid(
                     path = found.location.displayPath,

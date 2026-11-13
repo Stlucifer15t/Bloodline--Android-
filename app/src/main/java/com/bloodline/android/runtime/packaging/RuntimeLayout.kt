@@ -194,10 +194,56 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
     fun emulatorBinary(): File? = store.packageDir(RuntimePackageCatalog.BOX64_BIONIC)
         .let { root -> NAMES_EMULATOR.firstNotNullOfOrNull { root.find(it) } }
 
-    /** Library directories the guest needs on its search path, in order. */
+    /**
+     * Library directories the guest needs on its search path, in order.
+     *
+     * The WoW64 layer is a DLL that itself links against the emulator's native
+     * library (`libbox64.so`, `libFEX.so`, …). Those live inside the WOWBox64
+     * and FEX package directories, so they must be on `LD_LIBRARY_PATH` or the
+     * DLL loads and then fails to resolve its own dependency.
+     */
     fun libDirs(flavour: WineFlavour = WineFlavour.DEFAULT): List<File> = buildList {
         wineLibDir(flavour)?.let { add(it) }
         store.packageDir(RuntimePackageCatalog.BOX64_BIONIC).takeIf { it.isDirectory }?.let { add(it) }
+        store.packageDir(RuntimePackageCatalog.WOWBOX64).takeIf { it.isDirectory }?.let { add(it) }
+        store.packageDir(RuntimePackageCatalog.FEX).takeIf { it.isDirectory }?.let { add(it) }
+    }
+
+    /** The prefix's `dosdevices` directory, where Wine reads drive mappings. */
+    fun dosDevicesDirectory(): File = File(store.prefixDir(), "dosdevices")
+
+    /**
+     * Maps the user's game folder to a drive letter inside the prefix.
+     *
+     * Wine learns about drives from the `dosdevices` entries, each a symlink
+     * `<drive>:` → an absolute Unix path. Without this, the game is launched as
+     * `D:\Vampire.exe` into a prefix that has no `D:` at all, so Wine cannot
+     * find it no matter how correct everything else is.
+     *
+     * @param gameDirectory absolute Unix path of the folder that holds the game.
+     * @param driveLetter   which letter to map it to.
+     * @return the symlink, or null when it could not be created.
+     */
+    fun mapGameDrive(gameDirectory: File, driveLetter: Char = GAME_DRIVE): File? {
+        val directory = dosDevicesDirectory()
+        if (!directory.isDirectory && !directory.mkdirs()) return null
+
+        val drive = File(directory, "$driveLetter:")
+        return try {
+            val path = drive.toPath()
+            if (java.nio.file.Files.isSymbolicLink(path)) {
+                val existing = java.nio.file.Files.readSymbolicLink(path)
+                if (existing == gameDirectory.toPath()) return drive
+                drive.delete()
+            } else if (drive.exists()) {
+                // Something that is not our link sits where the drive belongs.
+                // It is not ours to delete, so report the failure instead.
+                return null
+            }
+            java.nio.file.Files.createSymbolicLink(path, gameDirectory.toPath())
+        } catch (error: Exception) {
+            null
+        }
     }
 
     /**
@@ -247,6 +293,9 @@ class RuntimeLayout(private val store: RuntimePackageStore) {
         val NAMES_WINE_LIB = listOf("lib", "lib64", "lib/wine", "lib64/wine")
 
         val NAMES_EMULATOR = listOf("box64")
+
+        /** The drive letter the game is mapped to, matching [WineEnvironment.DEFAULT_GAME_DRIVE]. */
+        const val GAME_DRIVE = 'D'
 
         /**
          * Where a Wine build keeps its 32-bit Windows system files.
