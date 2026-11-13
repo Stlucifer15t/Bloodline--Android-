@@ -129,18 +129,32 @@ enum class MaliArchitecture(
         fun of(gpuFamily: String): MaliArchitecture? {
             val name = gpuFamily.uppercase().trim()
 
+            // Ordered most-specific first. This is not cosmetic: `MALI-G71`
+            // is a prefix of `MALI-G710`, so a naive chain classifies a
+            // Valhall G710 as Bifrost v7 and offers it the wrong driver.
             return when {
-                name.startsWith("MALI-G31") || name.startsWith("MALI-G51") -> V6
-                name.startsWith("MALI-G72") -> V6
-                name.startsWith("MALI-G52") || name.startsWith("MALI-G71") ||
-                    name.startsWith("MALI-G76") -> V7
-                name.startsWith("MALI-G57") || name.startsWith("MALI-G68") ||
-                    name.startsWith("MALI-G77") || name.startsWith("MALI-G78") -> V9
+                // Valhall, third and fourth generation, before the two-digit
+                // Bifrost names they share a prefix with.
                 name.startsWith("MALI-G610") || name.startsWith("MALI-G710") -> V10
                 name.startsWith("MALI-G615") || name.startsWith("MALI-G715") -> V11
+
+                // Immortalis, the 5th generation, before the Mali-G1 rule.
                 name.startsWith("IMMORTALIS-G720") -> V12
                 name.startsWith("IMMORTALIS-G925") -> V13
                 name.startsWith("MALI-G1-") || name.startsWith("IMMORTALIS-G1") -> V14
+
+                // Bifrost, first generation.
+                name.startsWith("MALI-G31") || name.startsWith("MALI-G51") -> V6
+                name.startsWith("MALI-G72") -> V6
+
+                // Bifrost, second generation.
+                name.startsWith("MALI-G52") || name.startsWith("MALI-G71") ||
+                    name.startsWith("MALI-G76") -> V7
+
+                // Valhall, job-manager frontend.
+                name.startsWith("MALI-G57") || name.startsWith("MALI-G68") ||
+                    name.startsWith("MALI-G77") || name.startsWith("MALI-G78") -> V9
+
                 else -> null
             }
         }
@@ -150,18 +164,36 @@ enum class MaliArchitecture(
 /**
  * Reads the GPU family out of `gpuinfo`.
  *
- * The file's first line is a space-separated list of properties; the one that
- * matters is `GPU=<name>` — for example
- * `GPU=Mali-G52 MC2 r0p0 ... kbase_version=11.38 arch=7`. Parsing it rather
- * than shelling out keeps this unit testable with the exact strings seen on
- * real devices.
+ * The first line is a space-separated list of properties; the one that matters
+ * is `GPU=<name>`, for example
+ * `GPU=Mali-G52 MC2 r0p0 0x74021000 kbase_version=11.38 arch=7`.
+ *
+ * The name itself keeps its core count — `Mali-G52 MC2` — because the
+ * generation mapping matches on the prefix anyway, and a caller that wants to
+ * show the model should not be handed a truncated one.
+ *
+ * Parsing it rather than shelling out keeps this testable against the exact
+ * strings real devices report.
  */
 internal fun parseFamily(gpuInfo: String?): String? {
     if (gpuInfo.isNullOrBlank()) return null
     val firstLine = gpuInfo.lineSequence().firstOrNull().orEmpty()
     val tokens = firstLine.split(' ', '\t').filter { it.isNotBlank() }
-    val gpu = tokens.firstOrNull { it.startsWith("GPU=") }?.removePrefix("GPU=")
-    if (!gpu.isNullOrBlank()) return gpu.trim()
+
+    val keyed = tokens.firstOrNull { it.startsWith("GPU=") }?.removePrefix("GPU=")
+    if (!keyed.isNullOrBlank()) {
+        // `GPU=` may be followed by the variant on the same token or on the
+        // next one (`Mali-G52 MC2`); take the optional `MCn` part when it is
+        // the very next token, so the result reads like the marketing name.
+        val index = tokens.indexOfFirst { it.startsWith("GPU=") }
+        val next = tokens.getOrNull(index + 1)
+        val joined = if (next != null && next.matches(Regex("(?i)(MC\\d+|MP\\d+)"))) {
+            "$keyed $next"
+        } else {
+            keyed
+        }
+        return joined.trim()
+    }
 
     // Some kernels put the name first with no key.
     val first = tokens.firstOrNull()

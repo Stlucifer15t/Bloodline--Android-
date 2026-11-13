@@ -23,7 +23,7 @@ class GpuIdentityTest {
     @Test
     fun `reads the GPU name out of gpuinfo`() {
         assertEquals("Mali-G52 MC2", parseFamily("GPU=Mali-G52 MC2"))
-        assertEquals("Mali-G52", parseFamily("GPU=Mali-G52"))
+        assertEquals("Mali-G52", parseFamily("GPU=Mali-G52 r0p0 kbase_version=11.38"))
     }
 
     @Test
@@ -76,14 +76,16 @@ class GpuIdentityTest {
 
     @Test
     fun `decodes the packed Vulkan version`() {
-        // 1.1.177 as Android packs it.
+        // The value this device actually reports. It is 1.1.0, not 1.1.177:
+        // 177 is the Arm driver's own build number, which appears in the GL
+        // renderer string, not in the platform feature version.
         val version = VulkanVersion.fromPacked(4198400)
 
         assertNotNull(version)
         assertEquals(1, version!!.major)
         assertEquals(1, version.minor)
-        assertEquals(177, version.patch)
-        assertFalse(version.atLeast(1, 2))
+        assertEquals(0, version.patch)
+        assertFalse("1.1.0 is not 1.2", version.atLeast(1, 2))
         assertTrue(version.atLeast(1, 1))
     }
 
@@ -143,6 +145,6 @@ class GpuIdentityTest {
     fun `the frame cap is never above what was asked`() {
         assertEquals(30, FrameLimit.atMost(30))
         assertEquals(60, FrameLimit.atMost(60))
-        assertEquals(30, FrameLimit.atMost(45))
+        assertEquals("45 takes the largest cap at or below it", 40, FrameLimit.atMost(45))
     }
 }
