@@ -175,7 +175,7 @@ class RuntimeLayoutTest {
         val link = layout.mapGameDrive(game)
 
         assertNotNull(link)
-        assertEquals("d:", link!!.name)
+        assertEquals("D:", link!!.name)
         assertEquals(
             game.toPath(),
             java.nio.file.Files.readSymbolicLink(link.toPath()),
