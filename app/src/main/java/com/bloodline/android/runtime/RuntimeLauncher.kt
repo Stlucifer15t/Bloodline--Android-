@@ -102,6 +102,10 @@ class RuntimeLauncher(
         }
     }
 
+    /** The WoW64 host DLL as Wine will find it, or null when it is not there. */
+    fun wow64DllInPrefix(flavour: WineFlavour = WineFlavour.DEFAULT): File? =
+        layout.wow64DllInPrefix(flavour)
+
     /**
      * Builds the launch plan.
      *

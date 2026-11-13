@@ -66,7 +66,7 @@ class WineInitialiserTest {
                 onExit: (ProcessRunner.Outcome) -> Unit,
             ): ProcessRunner.Handle {
                 onExit(scripted(request))
-                return ProcessRunner.Handle { }
+                return noHandle()
             }
 
             private fun scripted(request: ProcessRunner.Request): ProcessRunner.Outcome {
@@ -94,7 +94,7 @@ class WineInitialiserTest {
             onExit: (ProcessRunner.Outcome) -> Unit,
         ): ProcessRunner.Handle {
             onExit(outcome)
-            return ProcessRunner.Handle { }
+            return noHandle()
         }
     }
 
@@ -384,6 +384,11 @@ class WineInitialiserTest {
 
         System.arraycopy(interpBytes, 0, out, interpOffset, interpBytes.size)
         return out
+    }
+
+    private fun noHandle(): ProcessRunner.Handle = object : ProcessRunner.Handle {
+        override val pid: Long? = null
+        override fun cancel() = Unit
     }
 
     /** Silences the unused-import warning without changing behaviour. */

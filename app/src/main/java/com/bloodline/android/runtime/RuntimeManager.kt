@@ -66,6 +66,16 @@ class RuntimeManager(
     private val onOutput: (String) -> Unit = {},
 
     /**
+     * A monotonic milliseconds source for session timing.
+     *
+     * Injected rather than assumed, for the reason given on
+     * [GameProcessManager]: wall-clock time can go backwards, and a run that
+     * measures as 0s when it ran for minutes sends everyone looking for a
+     * cause that is really a broken clock.
+     */
+    private val clock: () -> Long = System::currentTimeMillis,
+
+    /**
      * Called with each line the **game** prints, kept apart from [onOutput].
      *
      * Measured, not guessed. The first log off a real device held 2055 lines
@@ -124,7 +134,7 @@ class RuntimeManager(
 
     private var capabilities: RuntimeCapabilities = RuntimeCapabilities.unknown()
 
-    private var processManager = GameProcessManager()
+    private var processManager = GameProcessManager(clock = clock)
 
     private var phase: Phase = Phase.Idle
 
@@ -333,25 +343,33 @@ class RuntimeManager(
             },
             onExit = { outcome ->
                 val result = when (outcome) {
-                    is ProcessRunner.Outcome.Exited -> processManager.onExit(outcome.exitCode)
+                    // The signal is passed, not dropped. Without it a process
+                    // killed by SIGSEGV reports as "exited with 139", and the
+                    // one fact that identifies a crash becomes a number that
+                    // reads like a program error.
+                    is ProcessRunner.Outcome.Exited ->
+                        processManager.onExit(outcome.exitCode, outcome.signal)
 
-                    // No exit status exists in either case, and saying so is
-                    // the point: a process that was killed or never started is
-                    // "vanished", not "exited cleanly with code 0".
+                    // Three ways to have no exit status, and they are not the
+                    // same thing: we gave up, the binary never started, or
+                    // Android took the child away. Reported separately.
                     is ProcessRunner.Outcome.TimedOut -> {
-                        lastError = "the game was killed after ${outcome.timeoutMs}ms"
-                        processManager.onReaped()
+                        lastError = "the game was still running after ${outcome.timeoutMs}ms"
+                        processManager.onTimedOut(outcome.timeoutMs)
                     }
 
                     is ProcessRunner.Outcome.Failed -> {
                         lastError = outcome.reason
-                        processManager.onMissing(outcome.reason)
-                        processManager.onReaped()
+                        processManager.onLaunchFailed(outcome.reason)
                     }
                 }
                 onProcessExit?.invoke(result)
             },
         )
+
+        // The pid exists now, and only now. Recorded so that whatever the
+        // process went on to do can be tied back to this run in logcat.
+        processManager.attachPid(gameHandle?.pid)
 
         publish(Phase.InGame)
         return phase
@@ -449,6 +467,24 @@ class RuntimeManager(
      * meaningful next to the value of `WINEDEBUG` it was given.
      */
     fun plannedEnvironment(): Map<String, String> = lastPlan?.environment.orEmpty()
+
+    /**
+     * Whether the WoW64 host DLL is where Wine will look for it.
+     *
+     * A sentence rather than a boolean, because a report is read by a person:
+     * "ABSENT" sitting next to a null-dereference crash inside ntdll.so is
+     * the whole diagnosis in two lines.
+     */
+    fun wow64HostDll(): String {
+        val flavour = flavour()
+        if (!flavour.usesWow64Layer) return "not used by ${flavour.title}"
+        val file = launcher?.wow64DllInPrefix(flavour)
+        return if (file != null) {
+            "present at ${file.absolutePath}"
+        } else {
+            "ABSENT: ${flavour.wow64DllName} is not in the prefix's system32"
+        }
+    }
 
     /** True while a game process is still running. */
     fun isRunning(): Boolean = processManager.isRunning

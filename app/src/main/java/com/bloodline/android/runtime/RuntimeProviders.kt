@@ -76,5 +76,8 @@ object RuntimeProviders {
         runner = processRunner(),
         onOutput = onOutput,
         onGameOutput = onGameOutput,
+        // Monotonic, because session length is a measurement and not a
+        // timestamp. elapsedRealtime counts since boot and cannot jump.
+        clock = android.os.SystemClock::elapsedRealtime,
     )
 }

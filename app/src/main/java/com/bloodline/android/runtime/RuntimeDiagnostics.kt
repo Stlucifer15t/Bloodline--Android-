@@ -5,6 +5,7 @@ import com.bloodline.android.runtime.backends.AudioBridge
 import com.bloodline.android.runtime.backends.CpuTranslator
 import com.bloodline.android.runtime.backends.GraphicsBackend
 import com.bloodline.android.runtime.backends.GraphicsSelection
+import com.bloodline.android.runtime.process.Termination
 
 /**
  * Turns the runtime's state into the `runtime` section of a diagnostics report.
@@ -49,6 +50,8 @@ object RuntimeDiagnostics {
         exit: GameProcessManager.ExitResult? = null,
         errors: List<String> = emptyList(),
         initialisation: WineInitialiser.Report? = null,
+        /** Where the WoW64 host DLL is, or that it is not there. */
+        wow64HostDll: String? = null,
     ): Map<String, String> = linkedMapOf<String, String>().apply {
 
         // --- what this device can do, all of it measured -------------------
@@ -82,6 +85,10 @@ object RuntimeDiagnostics {
         put("Launcher version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
 
         // --- what the runtime chose, and why -------------------------------
+        // Asked as a fact every time. The 32-bit path depends on this one
+        // file being inside the prefix, and "we copied it" is not the same
+        // claim as "it is there now".
+        wow64HostDll?.let { put("WoW64 host DLL", it) }
         put("Graphics backend", graphics.backend?.title ?: "none available")
         put("Graphics reason", graphics.reason)
         put("Graphics fell back", yesNo(graphics.wasFallback))
@@ -134,10 +141,26 @@ object RuntimeDiagnostics {
         // --- how the run went ---------------------------------------------
         phase?.let { put("Last phase", describePhase(it)) }
         exit?.let {
+            // Evidence first, reading second. The raw status is what lets
+            // someone else disagree with our interpretation, and an
+            // interpretation that cannot be checked is just an opinion.
+            put("Exit reading", it.termination.name)
             put("Exit reason", it.reason.name)
-            it.exitCode?.let { code -> put("Exit code", code.toString()) }
-            it.signal?.let { signal -> put("Exit signal", signal.toString()) }
-            put("Session length", "${it.durationMillis / 1000}s")
+            put("Exit code", it.exitCode?.toString() ?: "none: no status was produced")
+            put(
+                "Exit signal",
+                it.signal?.let { signal -> "${Termination.signalName(signal)} ($signal)" }
+                    ?: "none",
+            )
+            put("Exit meaning", it.describe())
+            // Monotonic, so this is a duration and not a difference of two
+            // clock readings: "0s" here genuinely means it did not last.
+            put("Session length", "${it.durationMillis}ms")
+            put("Process id", it.pid?.toString() ?: "not available")
+            // Argument for argument, because "which Wine, and with what" is
+            // the first question asked about a crash and the one a summary
+            // usually cannot answer.
+            put("Command", it.command.joinToString(" ").ifEmpty { "none recorded" })
         }
         if (errors.isNotEmpty()) {
             put("Errors", errors.joinToString(" | "))

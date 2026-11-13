@@ -274,23 +274,25 @@ class RuntimeHost(
         exit = exit,
         errors = errors,
         initialisation = manager.initialisation(),
+        wow64HostDll = manager.wow64HostDll(),
     )
 
     private fun publish(phase: RuntimeManager.Phase) = host.onPhaseChanged(phase)
 
-    private fun messageFor(result: GameProcessManager.ExitResult): String = when (result.reason) {
-        GameProcessManager.ExitReason.CLEAN -> "The game closed."
-        GameProcessManager.ExitReason.ERROR_CODE ->
-            "The game closed with an error (exit ${result.exitCode})."
-        GameProcessManager.ExitReason.SIGNAL ->
-            "The game was killed by the system (signal ${result.signal})."
-        GameProcessManager.ExitReason.REAPED ->
-            // Worth spelling out: this is Android's process cap, not a game bug,
-            // and the two need different fixes.
-            "The game process was stopped by Android. It ran for " +
-                "${result.durationMillis / 1000}s."
-        GameProcessManager.ExitReason.STOPPED -> "Stopped."
-        GameProcessManager.ExitReason.MISSING -> "The game process was never started."
+    /**
+     * One sentence for the screen.
+     *
+     * Delegated to the [result] itself, which decides the reading from the
+     * exit status and signal it was given. This used to assert a cause from
+     * the reason alone — "stopped by Android" — with nothing behind it. That
+     * is a guess wearing a finding's clothes, and it is how a Wine crash and
+     * a process cap ended up producing the same sentence.
+     */
+    private fun messageFor(result: GameProcessManager.ExitResult): String = buildString {
+        append(result.describe())
+        append(" It ran for ${result.durationMillis}ms")
+        result.signalName?.let { append(" ($it)") }
+        append(".")
     }
 
     /** The three choices the runtime would make right now. */
