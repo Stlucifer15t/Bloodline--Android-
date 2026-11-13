@@ -39,12 +39,25 @@ NDK 27 (CMake 3.22.1) on `ubuntu-latest`, producing a ~3.3 MB debug APK
 | Cached install metadata (fast reopen, no needless rescan) | ✅ Done |
 | Automatic crash reports (session detection, ZIP, save/share/delete) | ✅ Done |
 | Touch HUD / on-screen controls | ❌ Does not exist yet |
-| Wine (Windows API) | ❌ Not integrated |
-| Box86 / Box64 (x86 → ARM64) | ❌ Not integrated |
-| Rootless container / glibc userland | ❌ Not integrated |
-| Graphics translation | ❌ Not integrated |
-| Audio bridge | ❌ Not integrated |
-| Launching the game | ❌ Impossible until the above exist |
+| Wine (Windows API) | ✅ Acquired at first run (ARM64EC, LGPL-2.1) |
+| WoW64 — 32-bit x86 on ARM64 (WOWBox64 / FEX) | ✅ Acquired at first run |
+| Rootless container / glibc userland | Not required — the runtime is Bionic |
+| Graphics translation | ⚠️ Configured (GLES wrapper + WineD3D); **no display server yet** |
+| Audio bridge | ⚠️ Configured; ALSA plugin not shipped |
+| Unofficial Patch selection (`-game Unofficial_Patch`) | ✅ Implemented, unit tested |
+| Launching the game | ⚠️ The command is built, the drive is mapped and the patch is selected — but Wine has no display to draw into yet |
+
+### Where the launch actually stands
+
+The launcher no longer stops at "runtime not integrated". It downloads Wine
+(ARM64EC) and a WoW64 layer, validates the executable, brings up a prefix,
+copies the WoW64 DLL into it, **maps the game folder to `D:`**, selects the
+Unofficial Patch with `-game`, and starts the process.
+
+What is still missing is the layer that turns a window into pixels: an X server
+(Winlator runs its own), a GLES/EGL renderer, and a SysV shared-memory bridge.
+Without those the game starts and dies with a display error, which is exactly
+what the diagnostics report now shows instead of hiding.
 
 **There is no Windows compatibility runtime in this repository**, and this app is
 **not** a reskin of Winlator: nothing here requires a separate Winlator install.

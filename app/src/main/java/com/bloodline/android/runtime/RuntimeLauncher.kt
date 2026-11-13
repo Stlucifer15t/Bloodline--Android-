@@ -148,8 +148,9 @@ class RuntimeLauncher(
         /** `WINEDEBUG`, or null for [WineEnvironment.DEFAULT_WINE_DEBUG]. */
         wineDebug: String? = null,
     ): LaunchPlan {
-        val gameDirectory = File(validation.install.executablePath).parentFile.absolutePath
-        val executableName = File(validation.install.executablePath).name
+        val executable = File(validation.install.executablePath)
+        val gameDirectory = (executable.parentFile ?: File(validation.install.rootPath)).absolutePath
+        val executableName = executable.name
 
         val graphics = GraphicsConfiguration.forBackend(backend, capabilities)
         // The plugin is searched for, not assumed. When it is absent the
