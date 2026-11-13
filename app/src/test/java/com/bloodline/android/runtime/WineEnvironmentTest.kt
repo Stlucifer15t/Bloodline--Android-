@@ -177,15 +177,22 @@ class WineEnvironmentTest {
         // useless the moment it did not: a 32-bit program under Wine on a real
         // device came back SIGSEGV, and the launcher had already told Wine not
         // to print anything, then asked the user what Wine said.
-        val debug = environment().environment()["WINEDEBUG"].orEmpty()
+        // Tokens, not substrings: "fixme-all" is a channel being switched off
+        // and it contains the characters of "-all" without meaning it.
+        val channels = environment().environment()["WINEDEBUG"]
+            .orEmpty()
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
 
-        assertFalse(debug, debug.contains("-all"))
+        assertFalse(channels.toString(), channels.contains("-all"))
         // Errors and the exception that reports a crash have to be on.
-        assertTrue(debug, debug.contains("err+all"))
-        assertTrue(debug, debug.contains("trace+seh"))
+        assertTrue(channels.toString(), channels.contains("err+all"))
+        assertTrue(channels.toString(), channels.contains("trace+seh"))
         // Whether the WoW64 layer was found is the question behind most of
         // the 32-bit failures, so DLL loading is on too.
-        assertTrue(debug, debug.contains("trace+loaddll"))
+        assertTrue(channels.toString(), channels.contains("trace+loaddll"))
     }
 
     @Test
