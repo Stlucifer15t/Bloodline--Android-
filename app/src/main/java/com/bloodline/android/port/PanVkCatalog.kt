@@ -85,22 +85,28 @@ object PanVkCatalog {
      * `mali0`, or a generation the packages do not cover are three different
      * answers and the user deserves the right one.
      */
-    fun reasonNotApplicable(identity: GpuIdentity, apiLevel: Int): String? = when {
-        !identity.hasMaliNode ->
-            "This device has no /dev/mali0, so it is not running Arm's Mali kernel " +
-                "driver. PanVK's kbase builds cannot be used here."
-        identity.architecture == null ->
-            "The GPU could not be identified (gpuinfo reported " +
-                "${identity.rawGpuInfo ?: "nothing"}), so no driver is offered for it."
-        !identity.architecture.supportedByPanVk ->
-            "${identity.family} is ${identity.architecture.label}, which the universal " +
-                "PanVK package lists as not fully supported. Installing it would be a guess."
-        forDevice(identity) == null ->
-            "No package in the catalogue covers ${identity.family}."
-        apiLevel < PANVK_UNIVERSAL.minApi ->
-            "This package needs Android API ${PANVK_UNIVERSAL.minApi} or newer; " +
-                "this device reports API $apiLevel."
-        else -> null
+    fun reasonNotApplicable(identity: GpuIdentity, apiLevel: Int): String? {
+        // Bound once: `architecture` is a computed property, so the compiler
+        // cannot smart-cast it and reading it repeatedly would re-parse the
+        // same string for no gain.
+        val arch = identity.architecture
+        return when {
+            !identity.hasMaliNode ->
+                "This device has no /dev/mali0, so it is not running Arm's Mali kernel " +
+                    "driver. PanVK's kbase builds cannot be used here."
+            arch == null ->
+                "The GPU could not be identified (gpuinfo reported " +
+                    "${identity.rawGpuInfo ?: "nothing"}), so no driver is offered for it."
+            !arch.supportedByPanVk ->
+                "${identity.family} is ${arch.label}, which the universal " +
+                    "PanVK package lists as not fully supported. Installing it would be a guess."
+            forDevice(identity) == null ->
+                "No package in the catalogue covers ${identity.family}."
+            apiLevel < PANVK_UNIVERSAL.minApi ->
+                "This package needs Android API ${PANVK_UNIVERSAL.minApi} or newer; " +
+                    "this device reports API $apiLevel."
+            else -> null
+        }
     }
 }
 
