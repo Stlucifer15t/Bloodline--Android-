@@ -417,20 +417,36 @@ class WineInitialiserTest {
         File(wineRoot, "bin").mkdirs()
         File(wineRoot, "bin/wine").writeBytes(elf(AARCH64, "/system/bin/linker64"))
 
-        val initialiser = WineInitialiser(
-            scriptedRunner(exited(0)),
-            RuntimeLayout(store),
-            store,
-        )
+        // `wine --version` succeeds and `wineboot` fails, which is the shape of
+        // a prefix that could not be created.
+        val runner = object : CommandRunner {
+            override fun run(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+            ): ProcessRunner.Outcome =
+                if (request.command.any { it.contains("wineboot") }) {
+                    exited(2, "wineboot: could not create the prefix")
+                } else {
+                    exited(0)
+                }
 
-        // --version succeeds, wineboot is answered by the script running out,
-        // which is a failure.
-        initialiser.initialise(
+            override fun launch(
+                request: ProcessRunner.Request,
+                onLine: (String) -> Unit,
+                onExit: (ProcessRunner.Outcome) -> Unit,
+            ): ProcessRunner.Handle {
+                onExit(exited(0))
+                return noHandle()
+            }
+        }
+
+        val report = WineInitialiser(runner, RuntimeLayout(store), store).initialise(
             WineFlavour.WOW64_BOX64,
             emptyMap(),
             reuseInitialisedPrefix = true,
         )
 
+        assertFalse("wineboot was expected to fail", report.prefixIsUsable)
         assertFalse(
             "a failed prefix must not be recorded as initialised",
             store.initialisationMarker().isFile,
