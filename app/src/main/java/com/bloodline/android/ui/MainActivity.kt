@@ -442,7 +442,17 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
             getString(R.string.wine_32bit_check_warning, failed.describe())
     }
 
-    override fun onFinished(message: String) = runOnUiThread {
+    override fun onFinished(message: String, exit: GameProcessManager.ExitResult?) = runOnUiThread {
+        // A game that crashed is a failure that arrives here, not through
+        // onError, and a toast is one line. Without this the one outcome we
+        // most need explained — the game itself dying — is the one with no
+        // evidence attached to it. A clean exit is not a failure and gets
+        // nothing.
+        if (exit != null && exit.reason != GameProcessManager.ExitReason.CLEAN &&
+            exit.reason != GameProcessManager.ExitReason.STOPPED
+        ) {
+            launchFailure = describeLaunchFailure(message, gameRan = true)
+        }
         showMessage(message)
         updateLaunchState()
     }
@@ -462,7 +472,7 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
      * so it is put on screen here rather than making someone generate a ZIP
      * to discover that a Windows program segfaulted.
      */
-    private fun describeLaunchFailure(message: String): String = buildString {
+    private fun describeLaunchFailure(message: String, gameRan: Boolean = false): String = buildString {
         // Which build produced this, and what Wine was asked to print.
         // Without these two a pasted failure cannot be told apart from an
         // older build's, and that ambiguity already cost a round: the same
@@ -484,8 +494,22 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
         if (report != null) {
             appendLine()
             appendLine(report.describe())
+        }
 
-            val failed = report.failedAt
+        // Whose output this is matters more than having output. When the game
+        // itself ran, the tail is the game's, and that is the only thing that
+        // answers the question. When it never started, the tail belongs to the
+        // stage that stopped it — and putting those under one heading is how
+        // a probe's crash gets mistaken for the game's.
+        if (gameRan) {
+            val printed = runtimeOutput.toString().trim()
+            if (printed.isNotBlank()) {
+                appendLine()
+                appendLine(getString(R.string.launch_failure_game_output_heading))
+                append(printed.split('\n').takeLast(LAST_OUTPUT_LINES).joinToString("\n"))
+            }
+        } else {
+            val failed = report?.failedAt
             val output = failed?.let { report.outputOf(it.stage) }.orEmpty()
             if (output.isNotEmpty()) {
                 appendLine()
@@ -496,12 +520,6 @@ class MainActivity : AppCompatActivity(), RuntimeHost.Host {
                     ),
                 )
                 append(output.takeLast(LAST_OUTPUT_LINES).joinToString("\n"))
-            }
-        } else {
-            val printed = runtimeOutput.toString().trim()
-            if (printed.isNotBlank()) {
-                appendLine()
-                append(printed.split('\n').takeLast(LAST_OUTPUT_LINES).joinToString("\n"))
             }
         }
     }.trimEnd()

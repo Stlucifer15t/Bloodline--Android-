@@ -92,8 +92,15 @@ class RuntimeHost(
          */
         fun onLaunchProgress(message: String) {}
 
-        /** The run ended. [message] is written for a person to read. */
-        fun onFinished(message: String)
+        /**
+         * The run ended. [message] is written for a person to read.
+         *
+         * [exit] is why, when a process actually ended. It is passed rather
+         * than left to the caller to infer from the wording, because a game
+         * that crashed and a game that closed are both "the run ended" and
+         * only one of them needs its output put on screen.
+         */
+        fun onFinished(message: String, exit: GameProcessManager.ExitResult? = null)
 
         /** Something went wrong before a process existed. */
         fun onError(message: String)
@@ -118,7 +125,7 @@ class RuntimeHost(
         // starts the process and comes straight back.
         manager.onProcessExit = { result ->
             host.exitGameplay()
-            host.onFinished(messageFor(result))
+            host.onFinished(messageFor(result), result)
         }
 
         // Every phase as it is entered, not just the one it stopped at. The
@@ -241,7 +248,7 @@ class RuntimeHost(
     fun stop(reason: RuntimeManager.StopReason): GameProcessManager.ExitResult {
         val result = manager.stop(reason)
         publish(manager.phase())
-        host.onFinished(messageFor(result))
+        host.onFinished(messageFor(result), result)
         return result
     }
 

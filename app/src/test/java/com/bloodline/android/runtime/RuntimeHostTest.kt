@@ -1,5 +1,6 @@
 package com.bloodline.android.runtime
 
+import com.bloodline.android.runtime.GameProcessManager
 import com.bloodline.android.runtime.backends.CpuTranslator
 import com.bloodline.android.runtime.backends.GraphicsBackend
 import org.junit.Assert.assertEquals
@@ -25,7 +26,11 @@ class RuntimeHostTest {
         override fun enterGameplay() { events += "enterGameplay" }
         override fun exitGameplay() { events += "exitGameplay" }
         override fun onPhaseChanged(phase: RuntimeManager.Phase) { events += "phase:${phase::class.simpleName}" }
-        override fun onFinished(message: String) { events += "finished:$message" }
+        override fun onFinished(message: String, exit: GameProcessManager.ExitResult?) {
+            events += "finished:$message"
+            exit?.let { events += "exit:${it.reason}" }
+        }
+
         override fun onError(message: String) { events += "error:$message" }
     }
 

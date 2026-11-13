@@ -348,6 +348,7 @@ because it compiles.
 | Audio output | ⬜ config only | ✅ | ❌ | ❌ |
 | Launching the game | ✅ code path | ✅ | ❌ | ❌ |
 | Reporting why a launch failed | ✅ code path | ✅ | ✅ partial — observed on one device, one crash | ❌ |
+| The 32-bit check not vetoing the launch | ✅ code path | ✅ | ❌ — reasoned, never watched | ❌ |
 | Bloodlines | — | — | — | ❌ |
 
 **"Built" means it compiles and its unit tests pass. It does not mean the game
